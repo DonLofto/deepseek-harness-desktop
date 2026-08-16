@@ -21,5 +21,8 @@ describe('llm-gemini index entrypoint', () => {
     expect(typeof Index.mapGeminiUsage).toBe('function')
     expect(typeof Index.translateGeminiError).toBe('function')
     expect(Index.DEFAULT_UPGRADE_URI).toBe('https://one.google.com/explore-plan')
+    expect(typeof Index.GeminiAdapter).toBe('function')
+    expect(typeof Index.buildGeminiRequestPayload).toBe('function')
+    expect(Array.isArray(Index.DEFAULT_GEMINI_MODELS)).toBe(true)
   })
 })

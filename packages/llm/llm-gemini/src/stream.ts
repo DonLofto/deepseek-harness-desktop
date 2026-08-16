@@ -56,13 +56,13 @@ export interface ParsedGeminiChunk {
  */
 export interface StreamGeminiOptions {
   /** Fetch response object to consume. */
-  response?: Response
+  response?: Response | undefined
   /** Readable stream of byte chunks or AsyncIterable of strings/bytes. */
-  stream?: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array | string> | Iterable<Uint8Array | string>
+  stream?: ReadableStream<Uint8Array> | AsyncIterable<Uint8Array | string> | Iterable<Uint8Array | string> | undefined
   /** Optional AbortSignal for cancellation. */
-  signal?: AbortSignal
+  signal?: AbortSignal | undefined
   /** Optional user subscription tier for quota error handling. */
-  userTier?: UserTier | null
+  userTier?: UserTier | null | undefined
 }
 
 /** Input stream types accepted by {@link streamGeminiResponse}. */
