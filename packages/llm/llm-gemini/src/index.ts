@@ -8,4 +8,5 @@ export const name = 'llm-gemini'
 
 export * from './config.ts'
 export * from './oauth.ts'
+export * from './cloud-code-client.ts'
 export type * from './types.ts'

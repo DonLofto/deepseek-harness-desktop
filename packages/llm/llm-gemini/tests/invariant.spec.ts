@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import * as InvariantModule from '../src/invariant.ts'
 
 describe('llm-gemini invariant companion', () => {
@@ -21,7 +21,10 @@ describe('llm-gemini invariant companion', () => {
     expect(typeof disposer).toBe('function')
 
     expect(capturedInstaller).toBeDefined()
-    await capturedInstaller?.()
+    const fail: InvariantFailure = (msg: string): never => {
+      throw new Error(msg)
+    }
+    await capturedInstaller?.(ctx, fail)
   })
 
   it('exposes expected plugin metadata', () => {

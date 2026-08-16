@@ -56,3 +56,37 @@ export interface QuotaSummary {
   /** Whether capacity or credits have been exhausted. */
   capacityExhausted?: boolean
 }
+
+/**
+ * Individual model configuration and capability specification returned by Cloud Code PA.
+ */
+export interface ModelConfig {
+  /** Unique model identifier, e.g. 'gemini-2.5-pro'. */
+  id?: string
+  /** Resource name or model path, e.g. 'models/gemini-2.5-pro'. */
+  name?: string
+  /** Human-readable model display label. */
+  displayName?: string
+  /** Description of model capabilities and recommended usage. */
+  description?: string
+  /** Supported generation methods, e.g. 'generateContent', 'streamGenerateContent'. */
+  supportedGenerationMethods?: string[]
+  /** Maximum input token context capacity. */
+  inputTokenLimit?: number
+  /** Maximum response token output limit. */
+  outputTokenLimit?: number
+  /** Whether the model is available or authorized for the active user tier. */
+  isAvailable?: boolean
+}
+
+/**
+ * Response payload returned by Cloud Code PA ListModelConfigs RPC.
+ */
+export interface ListModelConfigsResponse {
+  /** List of model configurations authorized for the companion project or tier. */
+  modelConfigs?: ModelConfig[]
+  /** Alternative alias for model configuration list. */
+  models?: ModelConfig[]
+  /** Next page token for paginated model listings. */
+  nextPageToken?: string
+}
