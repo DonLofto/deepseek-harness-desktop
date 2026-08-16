@@ -31,6 +31,9 @@ export interface GeminiConfig {
   ideName?: string
 }
 
+/**
+ * Plugin configuration type, alias for {@link GeminiConfig}.
+ */
 export type Config = GeminiConfig
 
 /**
@@ -63,11 +66,5 @@ export interface ResolvedGeminiConfig {
  * @returns Fully resolved configuration facts with defaults applied.
  */
 export function resolveGeminiConfig(config?: Partial<GeminiConfig>): ResolvedGeminiConfig {
-  const schemaResolved = Config(config ?? {})
-  return {
-    cloudCodeEndpoint: schemaResolved.cloudCodeEndpoint ?? DEFAULT_CLOUD_CODE_ENDPOINT,
-    apiServerUrl: schemaResolved.apiServerUrl ?? DEFAULT_API_SERVER_URL,
-    subclientType: schemaResolved.subclientType ?? DEFAULT_SUBCLIENT_TYPE,
-    ideName: schemaResolved.ideName ?? DEFAULT_IDE_NAME,
-  }
+  return Config(config ?? {}) as ResolvedGeminiConfig
 }

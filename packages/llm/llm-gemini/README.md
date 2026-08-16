@@ -19,3 +19,29 @@ The package exposes the Cordis plugin entrypoint, Google OAuth token management,
 ```
 
 The plugin registers the provider route `google-gemini` on `ctx.llm`.
+
+## Model Experience
+
+### Gemini request
+
+#### What the model sees
+
+The selected Gemini model receives the harness system prompt, message history, tool schemas, and generation config translated into Gemini Content and GenerateContentRequest payloads without adapter-authored prompt prose.
+
+#### Token effect
+
+Provider tokenization governs exact input. Generated tokens follow the request's maxTokens setting and model context boundaries.
+
+#### KV Cache effect
+
+Consecutive turns within a session are eligible for provider context caching where supported by Gemini endpoints.
+
+### Gemini response
+
+#### What the model sees
+
+Text candidates, reasoning thought blocks, and function call invocations are translated into harness `StreamChunk` events for the loop to log and assemble.
+
+#### Token effect
+
+Usage metadata is captured in `usage` chunks, and quota consumption is reconciled against subscription tier limits.
