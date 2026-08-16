@@ -53,10 +53,10 @@ describe('GeminiAdapter', () => {
       const adapter = new GeminiAdapter()
       const models = await adapter.listModels('google-gemini')
       expect(models.length).toBeGreaterThan(0)
-      expect(models[0].provider).toBe('google-gemini')
-      expect(models[0].id).toBe('gemini-2.5-pro')
-      expect(models[0].name).toBe('Gemini 2.5 Pro')
-      expect(models[0].inputModalities).toEqual(['text', 'image'])
+      expect(models[0]?.provider).toBe('google-gemini')
+      expect(models[0]?.id).toBe('gemini-2.5-pro')
+      expect(models[0]?.name).toBe('Gemini 2.5 Pro')
+      expect(models[0]?.inputModalities).toEqual(['text', 'image'])
 
       // Test custom models with and without inputModalities
       const customAdapter = new GeminiAdapter({
@@ -77,9 +77,9 @@ describe('GeminiAdapter', () => {
         ],
       })
       const customList = await customAdapter.listModels('google-gemini')
-      expect(customList[0].description).toBeUndefined()
-      expect(customList[0].inputModalities).toEqual(['text', 'image'])
-      expect(customList[1].inputModalities).toEqual(['text'])
+      expect(customList[0]?.description).toBeUndefined()
+      expect(customList[0]?.inputModalities).toEqual(['text', 'image'])
+      expect(customList[1]?.inputModalities).toEqual(['text'])
     })
 
     it('resolves known model with exact context and limits via resolveModel', async () => {
