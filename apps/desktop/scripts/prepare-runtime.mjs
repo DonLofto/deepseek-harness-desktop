@@ -12,12 +12,15 @@
  */
 import { spawnSync } from 'node:child_process'
 import { cpSync, createWriteStream, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs'
+import { globSync } from 'node:fs'
 import { pipeline } from 'node:stream/promises'
 import { dirname, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const APP_DIR = join(dirname(fileURLToPath(import.meta.url)), '..')
 const VENDOR_DIR = join(APP_DIR, 'vendor')
+/** Workspace root; owns `pnpm-workspace.yaml`, the lockfile, and the store. */
+const WORKSPACE_ROOT = join(APP_DIR, '..', '..')
 /** Workspace node_modules of the deploy root (`@deepseek-ai/dsh`, apps/cli). */
 const CLI_NODE_MODULES = join(APP_DIR, '..', 'cli', 'node_modules')
 const NODE_VERSION = process.env.DSH_DESKTOP_NODE_VERSION ?? 'v22.19.0'
@@ -154,36 +157,111 @@ function pruneHarness(harnessDir, target) {
   }
 }
 
+/** Every package directory under `harness/node_modules/<scope>` or `harness/node_modules`. */
+function closurePackageDirs(harnessDir) {
+  const nodeModules = join(harnessDir, 'node_modules')
+  const scopes = readdirSync(nodeModules, { withFileTypes: true })
+    .filter(entry => entry.name.startsWith('@') && entry.isDirectory())
+    .map(entry => entry.name)
+  const dirs = readdirSync(nodeModules, { withFileTypes: true })
+    .filter(entry => !entry.name.startsWith('@') && entry.isDirectory())
+    .map(entry => entry.name)
+  for (const scope of scopes) {
+    for (const entry of readdirSync(join(nodeModules, scope), { withFileTypes: true })) {
+      if (entry.isDirectory()) dirs.push(`${scope}/${entry.name}`)
+    }
+  }
+  return dirs
+}
+
 /**
- * Restore direct dependencies that `pnpm deploy --legacy` hoists beside the
- * deploy source instead of materializing in the target (bundle and shell
- * packages such as `@deepseek-ai/dsh-base` and `@deepseek-ai/dsh-web-app`).
- * Each missing dependency is copied from the deploy root's workspace
- * `node_modules`, dereferenced, with its package-local `node_modules` omitted to
- * keep one flat Cordis instance. Mirrors `build-exe-for-python-sdk.ts`.
+ * Restore workspace dependencies that `pnpm deploy --legacy` fails to
+ * materialize: direct root dependencies hoisted beside the deploy source
+ * (bundle and shell packages such as `@deepseek-ai/dsh-base` and
+ * `@deepseek-ai/dsh-web-app`) and `link:`-overridden transitive vendored
+ * packages such as `@deepseek-ai/cosmokit`. Anything a deployed package.json
+ * declares that the staged closure cannot resolve is copied from the deploy
+ * root's workspace `node_modules`, dereferenced, with package-local
+ * `node_modules` omitted to keep one flat Cordis instance. Mirrors
+ * `build-exe-for-python-sdk.ts`.
  */
 function restoreLegacyHoists(harnessDir) {
-  const manifest = JSON.parse(readFileSync(join(harnessDir, 'package.json'), 'utf8'))
   const restored = []
-  for (const dependency of Object.keys(manifest.dependencies ?? {}).sort()) {
-    const destination = join(harnessDir, 'node_modules', dependency)
-    if (existsSync(destination)) continue
-    const source = join(CLI_NODE_MODULES, dependency)
-    if (!existsSync(source)) {
-      throw new Error(`prepare-runtime: deployed dependency ${dependency} is absent from both ${destination} and ${source}.`)
+  for (const packageDir of closurePackageDirs(harnessDir)) {
+    const manifestPath = join(harnessDir, 'node_modules', packageDir, 'package.json')
+    let manifest
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    } catch {
+      continue
     }
-    mkdirSync(dirname(destination), { recursive: true })
-    const nestedNodeModules = join(source, 'node_modules')
-    cpSync(source, destination, {
-      recursive: true,
-      dereference: true,
-      filter: (path) => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
-    })
-    restored.push(dependency)
+    const declared = { ...manifest.dependencies, ...manifest.optionalDependencies }
+    for (const [name, spec] of Object.entries(declared)) {
+      if (!runtimeRequired(name, spec)) continue
+      if (resolvesInClosure(harnessDir, packageDir, name)) continue
+      const destination = join(harnessDir, 'node_modules', name)
+      const source = workspaceDependencySource(name)
+      if (source === undefined) {
+        throw new Error(
+          `prepare-runtime: ${packageDir} declares ${name}, absent from the staged closure and from the deploy root`,
+        )
+      }
+      mkdirSync(dirname(destination), { recursive: true })
+      const nestedNodeModules = join(source, 'node_modules')
+      cpSync(source, destination, {
+        recursive: true,
+        dereference: true,
+        filter: (path) => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
+      })
+      restored.push(name)
+    }
   }
   if (restored.length > 0) {
-    console.log(`prepare-runtime: restored legacy deploy hoists: ${restored.join(', ')}`)
+    console.log(`prepare-runtime: restored legacy deploy hoists: ${[...new Set(restored)].sort().join(', ')}`)
   }
+}
+
+/** Whether `dependency` resolves from the package at `packageDir`, walking up to the flat root. */
+function resolvesInClosure(harnessDir, packageDir, dependency) {
+  let base = join(harnessDir, 'node_modules', packageDir)
+  for (;;) {
+    if (existsSync(join(base, 'node_modules', dependency))) return true
+    if (base === harnessDir) return false
+    base = dirname(base)
+  }
+}
+
+/** Whether a dependency only a matching platform/arch native addon needs to resolve. */
+function platformNativeAddon(dependency) {
+  if (!/-(darwin|linux|win32|freebsd)-(x64|arm64|arm|ia32)/.test(dependency)) return false
+  return !dependency.includes(`${process.platform}-${process.arch}`)
+}
+
+/** Required at runtime: skips optional platform addons for foreign OSes/arches. */
+function runtimeRequired(name, spec) {
+  if (spec.startsWith('workspace:') || spec.startsWith('link:') || name.startsWith('@deepseek-ai/')) {
+    return !platformNativeAddon(name)
+  }
+  return false
+}
+
+/** `link:`-pinned workspace packages the legacy deploy never materializes. */
+function workspaceOverrideTarget(dependency) {
+  const yaml = readFileSync(join(WORKSPACE_ROOT, 'pnpm-workspace.yaml'), 'utf8')
+  const pattern = new RegExp(`^\\s*['"]${dependency.replace(/[/.]/g, '\\$&')}['"]\\s*:\\s*['"](link:[^'"]+)['"]`, 'm')
+  const match = pattern.exec(yaml)
+  return match === null ? undefined : match[1].replace(/^link:/, '')
+}
+
+/** The dereferenceable package source a missing dependency restores from. */
+function workspaceDependencySource(dependency) {
+  const pinned = workspaceOverrideTarget(dependency)
+  if (pinned !== undefined) return join(WORKSPACE_ROOT, pinned)
+  const hoisted = join(CLI_NODE_MODULES, dependency)
+  if (existsSync(hoisted)) return hoisted
+  const stored = globSync(join(WORKSPACE_ROOT, 'node_modules', '.pnpm', `*${dependency}*`, 'node_modules', dependency))
+  if (stored.length > 0) return stored[0]
+  return undefined
 }
 
 /**
@@ -244,7 +322,31 @@ try {
   restoreLegacyHoists(join(VENDOR_DIR, 'harness'))
   materializeStagedLinks(join(VENDOR_DIR, 'harness'))
   pruneHarness(join(VENDOR_DIR, 'harness'), TARGETS[0])
+  verifyClosure(join(VENDOR_DIR, 'harness'))
   console.log('prepare-runtime: staged harness closure')
 } catch (error) {
   console.error(`prepare-runtime: harness deploy failed: ${error.message}`)
+  process.exitCode = 1
+}
+
+/** Assert every declared dependency of every deployed package resolves in-closure. */
+function verifyClosure(harnessDir) {
+  const missing = []
+  for (const packageDir of closurePackageDirs(harnessDir)) {
+    const manifestPath = join(harnessDir, 'node_modules', packageDir, 'package.json')
+    let manifest
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    } catch {
+      continue
+    }
+    const declared = { ...manifest.dependencies, ...manifest.optionalDependencies }
+    for (const [name, spec] of Object.entries(declared)) {
+      if (!runtimeRequired(name, spec)) continue
+      if (!resolvesInClosure(harnessDir, packageDir, name)) missing.push(`${packageDir} -> ${name}`)
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(`staged harness closure is incomplete:\n${missing.sort().join('\n')}`)
+  }
 }
