@@ -19,6 +19,7 @@ import { resolveDesktopEnv } from './env.ts'
 import { UpdateController } from './update.ts'
 import type { UpdateStatus } from './update-status.ts'
 import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycle.ts'
+import { shouldInstallWindowDragChrome } from './window-chrome.ts'
 import { HIDDEN_LAUNCH_ARG, shouldStartHidden, type LoginItemController } from './autolaunch.ts'
 import {
   createNotificationThrottle,
@@ -41,16 +42,23 @@ const CONNECTING_HTML = `<!doctype html>
 <style>
   body { margin: 0; display: grid; place-items: center; height: 100vh;
          font: 14px/1.5 system-ui, -apple-system, sans-serif; color: #9aa0a6;
-         background: #1f2328; -webkit-app-region: drag; }
+         background: #1f2328; -webkit-user-select: text; user-select: text; }
+  .box { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .spinner { width: 22px; height: 22px; border: 2px solid #3c4043; border-top-color: #3964fe; border-radius: 50%; animation: spin 0.8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  p { margin: 0; -webkit-user-select: text; user-select: text; }
 </style>
-<p>正在启动 DeepSeek Harness…</p>`
+<div class="box">
+  <div class="spinner"></div>
+  <p>正在启动 DeepSeek Harness…</p>
+</div>`
 
 
 /**
  * Frameless Windows caption + minimal drag chrome.
  * A wide mid-header drag overlay previously swallowed clicks on "子代理"
  * and the Files/Changes tabs. Keep only a thin top edge + left brand strip,
- * paint visible caption buttons, and show grab cursor on drag regions.
+ * paint visible caption buttons on Windows, and show grab cursor on drag regions.
  */
 const WINDOW_DRAG_CSS = `
 body { -webkit-app-region: no-drag; }
@@ -203,6 +211,7 @@ const WIRE_SKIN_CAPTION_JS = `(() => {
   }
 
   root.append(edge, drag, bar);
+
   const mount = () => {
     if (!document.body) return false;
     document.body.appendChild(root);
@@ -238,7 +247,7 @@ function resolveAppIcon(): string | undefined {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'desktop-resources', 'icon.png')]
     : [join(app.getAppPath(), 'build', 'icon.png'), join(app.getAppPath(), 'resources', 'icon.png')]
-  return candidates.find((candidate) => existsSync(candidate))
+  return candidates.find(candidate => existsSync(candidate))
 }
 
 /** Load the tray glyph: macOS template PNG, Windows branded icon, empty fallback. */
@@ -293,7 +302,7 @@ function createWindow(): BrowserWindow {
     maximizable: true,
     closable: true,
     // Frameless on Windows so skins are not covered by native caption buttons.
-    // macOS still uses hidden-inset traffic lights; Windows gets WINDOW_DRAG_CSS.
+    // macOS keeps its native hidden-inset title bar; Windows receives WINDOW_DRAG_CSS.
     frame: process.platform !== 'win32',
     ...(process.platform === 'darwin' ? {
       titleBarStyle: 'hiddenInset',
@@ -342,7 +351,7 @@ function createWindow(): BrowserWindow {
     return { action: 'deny' }
   })
   win.webContents.on('did-finish-load', () => {
-    if (process.platform === 'win32' && !win.isDestroyed()) {
+    if (shouldInstallWindowDragChrome(process.platform) && !win.isDestroyed()) {
       void win.webContents.insertCSS(WINDOW_DRAG_CSS)
       void win.webContents.executeJavaScript(WIRE_SKIN_CAPTION_JS, true)
     }

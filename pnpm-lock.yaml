@@ -1609,6 +1609,9 @@ importers:
       '@deepseek-ai/dsh-client-ui-trajectory':
         specifier: workspace:^
         version: link:../../client/ui-trajectory
+      '@deepseek-ai/dsh-client-ui-update':
+        specifier: workspace:^
+        version: link:../../client/ui-update
       '@deepseek-ai/dsh-client-ui-user-questions':
         specifier: workspace:^
         version: link:../../client/ui-user-questions

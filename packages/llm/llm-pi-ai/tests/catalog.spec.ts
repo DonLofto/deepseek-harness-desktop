@@ -10,8 +10,9 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
-import type { Api, Model, OpenAICompletionsCompat, Provider } from '@earendil-works/pi-ai'
+import { createModels, getSupportedThinkingLevels, InMemoryCredentialStore } from '@earendil-works/pi-ai'
+import type { Api, Model, OpenAICompletionsCompat, Provider, OAuthCredential } from '@earendil-works/pi-ai'
+import { runCatalogOAuthLogin } from '../src/catalog.ts'
 import { resolveProfiles } from '../src/config.ts'
 import { buildProvider, supportedProtocols } from '../src/provider.ts'
 import { assemble } from './assemble.ts'
@@ -583,6 +584,24 @@ describe('catalog routes with per-model configuration', () => {
     // trade a truthful refusal for an endpoint's 401.
     const resolved = resolveProfiles({ 'openai-codex': {} })
     expect(resolved.get('openai-codex')?.piProvider.auth.apiKey).toBeUndefined()
+  })
+
+  it('resolves OAuth credentials from credentialStore when OAuth store is attached', async () => {
+    const store = new InMemoryCredentialStore()
+    const oauthCred: OAuthCredential = {
+      type: 'oauth',
+      access: 'stored-access-token',
+      refresh: 'stored-refresh-token',
+      expires: Date.now() + 3600000,
+    }
+    await store.modify('openai-codex', async () => oauthCred)
+    const resolved = resolveProfiles({ 'openai-codex': {} })
+    const provider = resolved.get('openai-codex')?.piProvider
+    const models = createModels({ credentials: store })
+    models.setProvider(provider as Provider)
+    const model = provider?.getModels()[0] as Model<Api>
+    const auth = await models.getAuth(model)
+    expect(auth).toBeDefined()
   })
 })
 
@@ -1160,30 +1179,19 @@ describe('configurable-provider directory', () => {
     expect(ctx.llm.listConfigurableProviders()).toHaveLength(catalogOnly)
   })
 
-  it('withholds a catalog route this adapter cannot authenticate', async () => {
+  it('offers catalog routes with apiKey or OAuth authentication in configurable providers', async () => {
     const ctx = await harness({})
     const offered = ctx.llm.listConfigurableProviders().map(entry => entry.provider)
 
-    // `openai-codex` is the one installed provider that authenticates through
-    // OAuth alone. pi-ai resolves OAuth only from a *stored* credential, this
-    // adapter constructs its collection with no credential store, and nothing
-    // here runs a login flow — so every request on such a route fails with
-    // `Provider is not configured` before it goes out. Offering it would put a
-    // provider on the settings page that no amount of configuration can make
-    // work.
-    expect(offered).not.toContain('openai-codex')
-    // A provider that offers OAuth *beside* an api-key method keeps its entry:
-    // the key is a path this adapter can serve.
+    // `openai-codex` authenticates through OAuth and is offered when OAuth store or apiKey is available.
+    expect(offered).toContain('openai-codex')
+    // Providers offering apiKey or OAuth methods keep their entries.
     expect(offered).toContain('anthropic')
     expect(offered).toContain('openai')
+    expect(offered).toContain('google')
   })
 
-  it('still lists a withheld route a stored profile names, as a catalog route', async () => {
-    // Withholding the offer must not strand a profile someone already stored:
-    // the route keeps its entry so a configuration surface can edit or delete
-    // it, and `declared` still answers catalog membership rather than the
-    // offer, so the page does not mislabel it as a route this deployment
-    // invented.
+  it('lists catalog routes a stored profile names', async () => {
     const ctx = await harness({ providers: { 'openai-codex': { apiKeyEnv: KEY_ENV } } })
 
     expect(ctx.llm.listConfigurableProviders()).toContainEqual({
@@ -1192,6 +1200,89 @@ describe('configurable-provider directory', () => {
       settingsNs: 'llm-pi-ai',
       settingsPath: ['providers', 'openai-codex'],
       declared: false,
+      oauth: true,
     })
+  })
+})
+
+describe('runCatalogOAuthLogin', () => {
+  it('throws for a provider without OAuth support', async () => {
+    await expect(runCatalogOAuthLogin('deepseek')).rejects.toThrow(/does not support OAuth login/)
+  })
+
+  it('initiates OAuth login and handles cancellation via signal without prematurely cancelling callback wait', async () => {
+    const controller = new AbortController()
+    let authUrl: string | undefined
+    const loginPromise = runCatalogOAuthLogin('openai-codex', {
+      onAuthUrl: (url) => { authUrl = url },
+      signal: controller.signal,
+    })
+
+    // Give a short tick for the local server and auth URL initiation to run
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(authUrl).toContain('https://auth.openai.com')
+
+    // Aborting the controller cleans up and cancels the login
+    controller.abort()
+    await expect(loginPromise).rejects.toThrow()
+  })
+})
+
+describe('provider presets', () => {
+  it('serves configured presets alongside default catalog models', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = await harness({
+      providers: {
+        openrouter: {
+          apiKeyEnv: KEY_ENV,
+          baseURL: `${server.url}/v1`,
+          presets: [
+            { id: '@preset/deepseek', name: 'My DeepSeek Preset', contextWindow: 131_072, maxTokens: 16_384 },
+          ],
+        },
+      },
+    })
+
+    const models = await ctx.llm.listModels('openrouter')
+    expect(models.some(m => m.id === '@preset/deepseek' && m.name === 'My DeepSeek Preset')).toBe(true)
+    // Default catalog models are still present
+    expect(models.length).toBeGreaterThan(10)
+
+    const info = await ctx.llm.resolveModelInfo('openrouter', '@preset/deepseek')
+    expect(info).toMatchObject({
+      provider: 'openrouter',
+      id: '@preset/deepseek',
+      name: 'My DeepSeek Preset',
+      context: { contextWindow: 131_072 },
+      defaultMaxTokens: 16_384,
+    })
+
+    const result = await assemble(ctx, {
+      provider: 'openrouter',
+      model: '@preset/deepseek',
+      messages: [createUserMessage({
+        content: [{ type: 'text', text: 'hi' }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })
+
+    expect(result.message.content).toEqual([{ type: 'text', text: 'hello' }])
+    expect(result.finish).toEqual({ kind: 'stop' })
+    expect(server.paths).toEqual(['/v1/chat/completions'])
+    expect(server.requests[0]).toMatchObject({ model: '@preset/deepseek' })
+  })
+
+  it('rejects duplicate or empty preset ids', () => {
+    expect(() => resolveProfiles({
+      openrouter: {
+        presets: [{ id: '' }],
+      },
+    })).toThrow(/empty id/)
+
+    expect(() => resolveProfiles({
+      openrouter: {
+        presets: [{ id: '@preset/deepseek' }, { id: '@preset/deepseek' }],
+      },
+    })).toThrow(/more than once/)
   })
 })

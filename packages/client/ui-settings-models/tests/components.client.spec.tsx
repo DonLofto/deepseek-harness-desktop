@@ -42,6 +42,12 @@ const PiAiConfig = Schema.object({
   providers: Schema.dict(Schema.object({
     apiKeyEnv: Schema.string().role('credential-ref'),
     baseURL: Schema.string(),
+    presets: Schema.array(Schema.object({
+      id: Schema.string().required(),
+      name: Schema.string(),
+      contextWindow: Schema.number(),
+      maxTokens: Schema.number(),
+    })),
     reasoning: Schema.union(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']),
     headers: Schema.dict(Schema.string()),
   })),

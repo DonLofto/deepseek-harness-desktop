@@ -30,6 +30,7 @@ import {
 import { apiKeyFailure } from './apiKey.ts'
 import { EditorFooter } from './EditorFooter.tsx'
 import { ModelListEditor } from './ModelListEditor.tsx'
+import { PresetListEditor } from './PresetListEditor.tsx'
 import { deriveKeyRef, messageOf, protocolChoices } from './store.ts'
 import type { SettingsSchemaOperations } from './schema-operations.ts'
 import type { en } from './locales.ts'
@@ -57,6 +58,8 @@ export interface ProviderEditorProps {
    * override every one of them and the card does not offer it.
    */
   declared?: boolean
+  /** Whether the provider supports automated interactive OAuth login. */
+  oauth?: boolean
   /** The owning namespace view (schema, layers, secrets). */
   namespace: SettingsNamespaceView
   /** Settings-owned synchronous schema and immutable path operations. */
@@ -157,6 +160,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const [keyDraft, setKeyDraft] = useState('')
   const [keyState, setKeyState] = useState<CredentialView | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const [oauthBusy, setOauthBusy] = useState(false)
+  const [oauthMessage, setOauthMessage] = useState<{ text: string; kind: 'waiting' | 'success' | 'error' } | undefined>(undefined)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   // A settings success advances both retry baselines immediately. Keeping the
   // derived fields in the draft prevents a pushed namespace refresh from
@@ -215,6 +220,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // The model list is validated by the same per-row checker for both families,
   // so a bad row is named by its position rather than by a blanket message.
   const modelFailure = validateDeepSeekModels(schema.getPath(draft, ['models']))
+  const presetFailure = validateDeepSeekModels(schema.getPath(draft, ['presets']))
   const keyFailure = apiKeyFailure(keyDraft)
   // What a probe or a write must carry: the typed key with paste whitespace
   // removed. A blank field yields an empty string, which both call sites read
@@ -262,6 +268,16 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       /* v8 ignore next 3 -- unreachable from the card: the same failure disables submit */
       if (failure !== undefined) {
         return `${t('model')} ${String(failure.index + 1)}: ${t(failure.key)}`
+      }
+      const presetFail = validateDeepSeekModels(schema.getPath(next, ['presets']))
+      /* v8 ignore next 7 -- unreachable from the card: the same failure disables submit */
+      if (presetFail !== undefined) {
+        const failureKey = presetFail.key === 'modelIdRequired'
+          ? 'presetIdRequired'
+          : presetFail.key === 'modelIdDuplicate'
+            ? 'presetIdDuplicate'
+            : presetFail.key
+        return `${t('preset')} ${String(presetFail.index + 1)}: ${t(failureKey)}`
       }
     }
     /* v8 ignore next -- apply is only reachable from the rendered card, which required a resolved node */
@@ -368,8 +384,75 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
       },
       onReset: () => { setDraft(current => schema.deletePath(current, ['models'])) },
     }
+    const handleOAuthLogin = async (): Promise<void> => {
+      setOauthBusy(true)
+      setOauthMessage({ text: t('loginWaiting'), kind: 'waiting' })
+      try {
+        const res = await api.llm.startOAuthLogin({ provider: props.provider })
+        if (res.result.ok) {
+          setOauthMessage({ text: t('loginSuccess').replace('{provider}', props.displayName), kind: 'success' })
+          void api.credentials.describe({ refs: [keyRef] }).then(
+            (response) => {
+              if (response.result.ok) {
+                setKeyState(response.result.value.credentials[keyRef])
+              }
+            },
+            () => undefined,
+          )
+        } else {
+          setOauthMessage({
+            text: t('loginFailed').replace('{error}', res.result.error.message),
+            kind: 'error',
+          })
+        }
+      } catch (err: unknown) {
+        setOauthMessage({
+          text: t('loginFailed').replace('{error}', err instanceof Error ? err.message : String(err)),
+          kind: 'error',
+        })
+      } finally {
+        setOauthBusy(false)
+      }
+    }
+
+    const isOAuth = props.oauth === true
+      || props.provider === 'openai-codex'
+      || props.provider === 'anthropic'
+      || props.provider === 'github-copilot'
+      || props.provider === 'kimi-coding'
+      || props.provider === 'openrouter'
+      || props.provider === 'xai'
+
     return (
       <>
+        {isOAuth ? (
+          <div className={styles['oauthBlock']}>
+            <button
+              type="button"
+              className={styles['oauthButton']}
+              disabled={disabled || oauthBusy}
+              onClick={() => { void handleOAuthLogin() }}
+            >
+              {t('loginWithOAuth').replace('{provider}', props.displayName)}
+            </button>
+            {oauthMessage !== undefined ? (
+              <p
+                className={`${styles['oauthStatus']} ${
+                  oauthMessage.kind === 'success'
+                    ? styles['oauthSuccess']
+                    : oauthMessage.kind === 'waiting'
+                      ? styles['oauthWaiting']
+                      : styles['error']
+                }`}
+              >
+                {oauthMessage.text}
+              </p>
+            ) : null}
+            <div className={styles['oauthDivider']}>
+              <span>{t('orApiKey')}</span>
+            </div>
+          </div>
+        ) : null}
         <div className={styles['field']}>
           <span className={styles['fieldLabel']}>{t('keyInput')}</span>
           <input
@@ -387,93 +470,115 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
           />
           {shownKeyFailure === undefined ? null : <p className={styles['error']}>{t(shownKeyFailure)}</p>}
         </div>
-        {props.credentialOnly === true ? null : <details className={styles['customized']}>
-          <summary className={styles['customizedSummary']}>{t('customized')}</summary>
-          <div className={styles['customizedBody']}>
-            {/* The name and the protocol are the create card's two remaining
-                profile fields; a route the adapter ships defaults both from
-                its catalog entry and neither belongs on its card. */}
-            {ownsIdentity
+        {props.credentialOnly === true ? null : (
+          <>
+            {/* Presets are the primary customization for pi-ai providers like OpenRouter,
+                so they render outside the collapsed customized block for immediate visibility. */}
+            {family === 'pi-ai'
               ? (
+                <PresetListEditor
+                  presets={modelDrafts(schema.getPath(draft, ['presets']))}
+                  disabled={disabled}
+                  t={t}
+                  onChange={(next) => {
+                    setDraft(current => next.length === 0
+                      ? schema.deletePath(current, ['presets'])
+                      : schema.setPath(current, ['presets'], next))
+                  }}
+                />
+              )
+              : null}
+            <details className={styles['customized']}>
+              <summary className={styles['customizedSummary']}>{t('customized')}</summary>
+              <div className={styles['customizedBody']}>
+                {/* The name and the protocol are the create card's two remaining
+                    profile fields; a route the adapter ships defaults both from
+                    its catalog entry and neither belongs on its card. */}
+                {ownsIdentity
+                  ? (
+                    <div className={styles['field']}>
+                      <span className={styles['fieldLabel']}>{t('customDisplayName')}</span>
+                      <input
+                        className={styles['input']}
+                        type="text"
+                        value={stringAt(draft, 'displayName') ?? ''}
+                        // What this route is called the moment the field is
+                        // cleared, which is the layer beneath the one this field
+                        // edits: a `cordis.yml` may pin a name for a route the
+                        // catalog does not ship, and only when nothing does is
+                        // the answer the route id. Reading the effective value
+                        // instead would echo the stored override back as the
+                        // thing clearing restores.
+                        placeholder={stringAt(schema.getPath(namespace.base, settingsPath), 'displayName')
+                          ?? props.provider}
+                        aria-label={t('customDisplayName')}
+                        disabled={disabled}
+                        onChange={(event) => { setField('displayName', event.target.value) }}
+                      />
+                    </div>
+                  )
+                  : null}
                 <div className={styles['field']}>
-                  <span className={styles['fieldLabel']}>{t('customDisplayName')}</span>
+                  <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
                   <input
                     className={styles['input']}
                     type="text"
-                    value={stringAt(draft, 'displayName') ?? ''}
-                    // What this route is called the moment the field is
-                    // cleared, which is the layer beneath the one this field
-                    // edits: a `cordis.yml` may pin a name for a route the
-                    // catalog does not ship, and only when nothing does is
-                    // the answer the route id. Reading the effective value
-                    // instead would echo the stored override back as the
-                    // thing clearing restores.
-                    placeholder={stringAt(schema.getPath(namespace.base, settingsPath), 'displayName')
-                      ?? props.provider}
-                    aria-label={t('customDisplayName')}
+                    value={stringAt(draft, 'baseURL') ?? ''}
+                    placeholder={family === 'deepseek'
+                      ? DEEPSEEK_PUBLIC_BASE_URL
+                      : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
+                    aria-label={t('baseUrl')}
                     disabled={disabled}
-                    onChange={(event) => { setField('displayName', event.target.value) }}
+                    onChange={(event) => {
+                      setField('baseURL', event.target.value === '' ? undefined : event.target.value)
+                    }}
                   />
                 </div>
-              )
-              : null}
-            <div className={styles['field']}>
-              <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                value={stringAt(draft, 'baseURL') ?? ''}
-                placeholder={family === 'deepseek'
-                  ? DEEPSEEK_PUBLIC_BASE_URL
-                  : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
-                aria-label={t('baseUrl')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField('baseURL', event.target.value === '' ? undefined : event.target.value)
-                }}
-              />
-            </div>
-            {/* The protocol sits beside the endpoint it describes, as it does
-                on the create card. */}
-            {ownsIdentity
-              ? (
-                <div className={styles['field']}>
-                  <span className={styles['fieldLabel']}>{t('customApi')}</span>
-                  <select
-                    className={`${styles['input']} ${styles['selectInput']}`}
-                    value={probeApi ?? ''}
-                    aria-label={t('customApi')}
-                    disabled={disabled}
-                    onChange={(event) => { setField('api', event.target.value) }}
-                  >
-                    {/* A profile naming no protocol — hand-written into
-                        settings.yaml with no model to need one — selects
-                        nothing rather than reading as if it had picked the
-                        first choice. The option is named because a screen
-                        reader announces it either way, and an empty one is
-                        announced as a choice with no identity. */}
-                    {probeApi === undefined ? <option value="">{t('customApiUnset')}</option> : null}
-                    {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
-                  </select>
-                </div>
-              )
-              : null}
-            {/* Both families edit the same rows through the same contract; only
-                the extras differ — DeepSeek's inherited capacities, pi-ai's
-                endpoint interrogation. */}
-            {family === 'deepseek'
-              ? (
-                <DeepSeekModelsEditor
-                  {...catalogProps}
-                  defaultContextWindow={typeof defaultContextWindow === 'number'
-                    ? defaultContextWindow
-                    : undefined}
-                  defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
-                />
-              )
-              : <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />}
-          </div>
-        </details>}
+                {/* The protocol sits beside the endpoint it describes, as it does
+                    on the create card. */}
+                {ownsIdentity
+                  ? (
+                    <div className={styles['field']}>
+                      <span className={styles['fieldLabel']}>{t('customApi')}</span>
+                      <select
+                        className={`${styles['input']} ${styles['selectInput']}`}
+                        value={probeApi ?? ''}
+                        aria-label={t('customApi')}
+                        disabled={disabled}
+                        onChange={(event) => { setField('api', event.target.value) }}
+                      >
+                        {/* A profile naming no protocol — hand-written into
+                            settings.yaml with no model to need one — selects
+                            nothing rather than reading as if it had picked the
+                            first choice. The option is named because a screen
+                            reader announces it either way, and an empty one is
+                            announced as a choice with no identity. */}
+                        {probeApi === undefined ? <option value="">{t('customApiUnset')}</option> : null}
+                        {protocols.map(choice => <option key={choice} value={choice}>{choice}</option>)}
+                      </select>
+                    </div>
+                  )
+                  : null}
+                {/* Both families edit the same rows through the same contract; only
+                    the extras differ — DeepSeek's inherited capacities, pi-ai's
+                    endpoint interrogation. */}
+                {family === 'deepseek'
+                  ? (
+                    <DeepSeekModelsEditor
+                      {...catalogProps}
+                      defaultContextWindow={typeof defaultContextWindow === 'number'
+                        ? defaultContextWindow
+                        : undefined}
+                      defaultMaxTokens={typeof defaultMaxTokens === 'number' ? defaultMaxTokens : undefined}
+                    />
+                  )
+                  : (
+                    <ModelListEditor {...catalogProps} probe={probe} probeBlocked={keyFailure} api={api} />
+                  )}
+              </div>
+            </details>
+          </>
+        )}
       </>
     )
   }
@@ -501,11 +606,18 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
             {`${t('model')} ${String(modelFailure.index + 1)}: ${t(modelFailure.key)}`}
           </p>
         )}
+      {props.credentialOnly === true || presetFailure === undefined
+        ? null
+        : (
+          <p className={styles['advancedHint']}>
+            {`${t('preset')} ${String(presetFailure.index + 1)}: ${t(presetFailure.key === 'modelIdRequired' ? 'presetIdRequired' : presetFailure.key === 'modelIdDuplicate' ? 'presetIdDuplicate' : presetFailure.key)}`}
+          </p>
+        )}
       <EditorFooter
         t={t}
         busy={busy}
         submitDisabled={disabled || layout === 'unknown'
-          || (props.credentialOnly !== true && modelFailure !== undefined)
+          || (props.credentialOnly !== true && (modelFailure !== undefined || presetFailure !== undefined))
           || shownKeyFailure !== undefined
           || (props.credentialRequired === true && keyValue.length === 0)}
         submitLabel={props.submitLabel ?? 'apply'}

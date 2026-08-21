@@ -184,6 +184,8 @@ export interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /** Whether the provider supports automated interactive OAuth login. */
+  oauth?: boolean
 }
 
 /**

@@ -61,7 +61,7 @@ import { assertUsableApiKey, LlmError } from '@deepseek-ai/dsh-llm'
 import type { AdapterRegistrationHandle, DirectoryRegistrationHandle, LlmConfigurableProvider } from '@deepseek-ai/dsh-llm'
 import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { PiAiAdapter } from './adapter.ts'
-import { catalogProviderIds, catalogProviderTakesApiKey } from './catalog.ts'
+import { catalogProviderHasOAuth, catalogProviderIds, catalogProviderSupportsAuth, runCatalogOAuthLogin } from './catalog.ts'
 import { assertServiceable, Config, resolveProfiles } from './config.ts'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { discoverModels } from './discovery.ts'
@@ -69,6 +69,7 @@ import { discoverModels } from './discovery.ts'
 export { PiAiAdapter } from './adapter.ts'
 export type { PiAiAdapterOptions } from './adapter.ts'
 export { Config } from './config.ts'
+export { catalogProviderHasOAuth, runCatalogOAuthLogin } from './catalog.ts'
 export type {
   PiAiCompatProfile,
   PiAiModality,
@@ -123,6 +124,7 @@ function directoryEntries(
   const catalog = new Set(catalogProviderIds())
   const entries = new Map<string, LlmConfigurableProvider>()
   const declare = (provider: string, displayName: string): void => {
+    const hasOAuth = catalogProviderHasOAuth(provider)
     entries.set(provider, {
       provider,
       displayName,
@@ -132,15 +134,12 @@ function directoryEntries(
       // narrowing a shipped provider's models stores a profile too, and that
       // route is still one pi-ai knows.
       declared: !catalog.has(provider),
+      ...hasOAuth ? { oauth: true } : {},
     })
   }
-  // A provider whose only native method is OAuth leaves this adapter nothing
-  // to authenticate with, so offering it would put a card on the settings page
-  // whose own posture — no key, credentials discovered by the provider — fails
-  // every request. Catalog *membership* is unaffected, so `declare` above still
-  // answers what pi-ai ships.
+  // Offer catalog providers that declare an api-key or OAuth authentication method.
   for (const provider of catalog) {
-    if (catalogProviderTakesApiKey(provider)) declare(provider, provider)
+    if (catalogProviderSupportsAuth(provider)) declare(provider, provider)
   }
   for (const [provider, profile] of profiles) declare(provider, profile.displayName)
   return [...entries.values()]
@@ -207,6 +206,10 @@ export function apply(ctx: Context, config: Config): void {
         + ` sending that message as provider-neutral content (${reason})`,
       )
     },
+    credentialStore: () => {
+      const store = ctx.get('credentials')?.oauthStore
+      return store as unknown as import('@earendil-works/pi-ai').CredentialStore | undefined
+    },
   })
   // The full installed catalog is configurable from the moment the plugin
   // mounts — dormant or not — so configuration surfaces can offer every
@@ -248,8 +251,12 @@ export function apply(ctx: Context, config: Config): void {
   // a surface is adding does not exist yet. The draft is the whole request
   // except the credential: a configuration surface edits a redacted descriptor
   // and never holds a stored secret, so an already-configured route supplies
-  // its own here rather than being interrogated unauthenticated.
   ctx.llm.registerModelDiscovery(NS, request => discoverModels(request, () => storedApiKey(request.provider)))
+  for (const provider of catalogProviderIds()) {
+    if (catalogProviderHasOAuth(provider)) {
+      ctx.llm.registerOAuthLogin(provider, options => runCatalogOAuthLogin(provider, options))
+    }
+  }
   // Route effects bind to this apply fiber via the stable `ctx` reference,
   // even when a swap runs inside the scoped settings callback below. A bare
   // mount (zero routes) is the dormant posture: nothing registers until a

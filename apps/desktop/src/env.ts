@@ -85,14 +85,14 @@ function resolveLaunch(resourceRoot: string): HarnessLaunch {
   const node = bundledNode(resourceRoot)
   const dshBin = bundledDshBin(resourceRoot)
   if (node !== null && dshBin !== null) {
-    return { command: node, args: [dshBin, 'web', '--port', port()] }
+    return { command: node, args: [dshBin, 'web', '--no-open', '--port', port()] }
   }
   const explicit = process.env[DSH_BIN_ENV]
   if (explicit !== undefined && explicit !== '') {
-    return { command: explicit, args: ['web', '--port', port()] }
+    return { command: explicit, args: ['web', '--no-open', '--port', port()] }
   }
   const repoRoot = join(resourceRoot, '..', '..')
-  return { command: 'node', args: [join(repoRoot, 'apps', 'cli', 'lib', 'bin.js'), 'web', '--port', port()] }
+  return { command: 'node', args: [join(repoRoot, 'apps', 'cli', 'lib', 'bin.js'), 'web', '--no-open', '--port', port()] }
 }
 
 /**

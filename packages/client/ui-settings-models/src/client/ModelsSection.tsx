@@ -65,6 +65,8 @@ interface EditorTarget extends ProviderIdentity {
   credentialRef?: string
   /** The adapter reports this route as one it does not ship (see {@link ProviderEditorProps.declared}). */
   declared?: boolean
+  /** Whether the provider supports automated interactive OAuth login. */
+  oauth?: boolean
 }
 
 /** Values that vary around the shared provider-editor rendering. */
@@ -83,6 +85,7 @@ function renderProviderEditor({ target, ...props }: ProviderEditorRenderProps): 
       displayName={target.displayName}
       settingsPath={target.settingsPath}
       {...target.declared === true ? { declared: true } : {}}
+      {...target.oauth === true ? { oauth: true } : {}}
       {...props}
     />
   )
@@ -114,13 +117,11 @@ export async function removeProviderProfile(
       ops: [{ op: 'unset', path: [...target.settingsPath] }],
     })
     if (!response.result.ok) return response.result.error.message
-  } catch (error) {
-    // The transport rejected rather than answering; the caller must be able
-    // to retry the idempotent operation instead of the row silently staying.
+    await controller.load()
+    return undefined
+  } catch (error: unknown) {
     return messageOf(error)
   }
-  await controller.load()
-  return undefined
 }
 
 /**
@@ -155,6 +156,7 @@ function targetOf(row: ProviderRow): EditorTarget {
     // route-level fields only a declared route owns off the card, exactly as
     // it leaves the custom tag off the row.
     ...row.entry.declared === true ? { declared: true } : {},
+    ...row.entry.oauth === true ? { oauth: true } : {},
   }
 }
 
@@ -433,6 +435,7 @@ function Loaded({ injected }: { injected: ModelsSectionFace }): ReactNode {
                 namespace={addNamespace}
                 schema={schema}
                 settingsPath={addTarget.settingsPath}
+                {...addTarget.oauth === true ? { oauth: true } : {}}
                 api={api}
                 t={t}
                 readOnly={!state.writable}

@@ -679,3 +679,66 @@ select.input {
   font-size: 13px;
   overflow-wrap: anywhere;
 }
+
+.oauthBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.oauthButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  border: 1px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.oauthButton:hover:not(:disabled) {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.oauthButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.oauthDivider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  margin: 4px 0;
+}
+
+.oauthDivider::before,
+.oauthDivider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--dsw-alias-border-l3);
+}
+
+.oauthStatus {
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.oauthSuccess {
+  color: var(--dsw-alias-state-success-primary);
+}
+
+.oauthWaiting {
+  color: var(--dsw-alias-state-warn-label);
+}

@@ -288,6 +288,10 @@ export class LlmRuntime extends Service {
     string,
     (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
   >()
+  private oauthLogins = new Map<
+    string,
+    (options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined }) => Promise<unknown>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -556,6 +560,45 @@ export class LlmRuntime extends Service {
       })
     }
     return models
+  }
+
+  /**
+   * Register an OAuth login handler for one provider route.
+   * @param provider - the provider route this login handler serves.
+   * @param login - interactive login handler.
+   * @returns the disposer that withdraws the handler.
+   */
+  registerOAuthLogin(
+    provider: string,
+    login: (options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined }) => Promise<unknown>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
+      if (provider.length === 0) {
+        throw new LlmError('OAuth login needs a non-empty provider', 'INVALID_OAUTH')
+      }
+      this.oauthLogins.set(provider, login)
+      yield () => {
+        this.oauthLogins.delete(provider)
+      }
+    }.bind(this), 'llm.registerOAuthLogin()')
+    return () => void dispose()
+  }
+
+  /**
+   * Start interactive OAuth login for one provider route.
+   * @param provider - provider route key.
+   * @param options - interaction hooks and optional abort signal.
+   * @returns the resolved OAuth credential.
+   */
+  async startOAuthLogin(
+    provider: string,
+    options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined } = {},
+  ): Promise<unknown> {
+    const login = this.oauthLogins.get(provider)
+    if (login === undefined) {
+      throw new LlmError(`no OAuth login is registered for "${provider}"`, 'NO_OAUTH')
+    }
+    return await login(options)
   }
 
   /**

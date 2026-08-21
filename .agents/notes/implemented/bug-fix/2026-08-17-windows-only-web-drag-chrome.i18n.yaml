@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-17-windows-only-web-drag-chrome.md
+2026-08-17-windows-only-web-drag-chrome.md: 9e931a04b2ff49d1939544442d4c5a856e8b201e
+2026-08-17-windows-only-web-drag-chrome.zh.md: cbaf49213b208df14bda99b5b886344327fb3c86

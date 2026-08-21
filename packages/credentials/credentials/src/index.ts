@@ -45,6 +45,24 @@ export interface CredentialInfo {
   writable: boolean
 }
 
+/** Structural interface for an OAuth / token credential store. */
+export interface OAuthCredentialStoreLike {
+  /** Read one credential for a provider. */
+  read(providerId: string): Promise<Record<string, unknown> | undefined>
+  /** Modify one credential under lock. */
+  modify(
+    providerId: string,
+    fn: (current: Record<string, unknown> | undefined) =>
+      | Promise<Record<string, unknown> | undefined>
+      | Record<string, unknown>
+      | undefined,
+  ): Promise<Record<string, unknown> | undefined>
+  /** Delete one provider credential. */
+  delete(providerId: string): Promise<void>
+  /** List all stored provider credentials. */
+  list(): Promise<Array<{ providerId: string; type: string }>>
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     credentials: CredentialProvider
@@ -58,6 +76,9 @@ declare module '@deepseek-ai/cordis' {
  * unconfigured — so a blank never masquerades as a configured secret.
  */
 export abstract class CredentialProvider extends Service {
+  /** Optional OAuth credential store for provider token management. */
+  oauthStore?: OAuthCredentialStoreLike
+
   constructor(ctx: Context) {
     super(ctx, 'credentials')
   }

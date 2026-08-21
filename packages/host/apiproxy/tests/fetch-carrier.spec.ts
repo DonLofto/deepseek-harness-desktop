@@ -281,6 +281,9 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async discoverModels(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { models: [] } } }
       },
+      async startOAuthLogin(request) {
+        return { rpcId: request.rpcId, result: { ok: true, value: { ok: true, provider: request.payload.provider } } }
+      },
     },
     events: {
       mux: (_request, signal) => stream(muxFrames, signal),

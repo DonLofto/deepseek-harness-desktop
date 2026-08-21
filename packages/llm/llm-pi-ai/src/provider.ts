@@ -77,10 +77,13 @@ export function supportedProtocols(): readonly string[] {
 function harnessApiKeyAuth(name: string): ApiKeyAuth {
   return {
     name,
-    resolve: ({ credential }) => Promise.resolve({
-      auth: credential?.key === undefined ? {} : { apiKey: credential.key },
-      source: name,
-    }),
+    resolve: ({ credential }) => {
+      const key = credential?.key
+      return Promise.resolve({
+        auth: key === undefined ? {} : { apiKey: key },
+        source: name,
+      })
+    },
   }
 }
 

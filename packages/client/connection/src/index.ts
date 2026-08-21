@@ -116,6 +116,7 @@ const PRIVILEGED_METHODS = new Set([
   'credentials.set',
   'credentials.unset',
   'llm.discoverModels',
+  'llm.startOAuthLogin',
 ])
 
 /**

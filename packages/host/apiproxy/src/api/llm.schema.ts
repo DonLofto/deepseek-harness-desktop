@@ -17,6 +17,7 @@ export const configurableProviderViewSchema = z.object({
   settingsPath: z.array(z.string()),
   active: z.boolean(),
   declared: z.boolean().optional(),
+  oauth: z.boolean().optional(),
 }) satisfies z.ZodType<Wire<ConfigurableProviderView>>
 
 /** llm.providers request payload. */
@@ -62,3 +63,14 @@ export const llmDiscoverModelsRequestSchema = z.object({
 export const llmDiscoverModelsValueSchema = z.object({
   models: z.array(discoveredModelViewSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'llm.discoverModels'>>>
+
+/** llm.startOAuthLogin request payload. */
+export const llmStartOAuthLoginRequestSchema = z.object({
+  provider: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'llm.startOAuthLogin'>>>
+
+/** llm.startOAuthLogin response value. */
+export const llmStartOAuthLoginValueSchema = z.object({
+  ok: z.boolean(),
+  provider: z.string().min(1),
+}) satisfies z.ZodType<Wire<ResponseValue<'llm.startOAuthLogin'>>>

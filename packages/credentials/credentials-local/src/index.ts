@@ -47,6 +47,7 @@ import { launchEnvironmentOf } from '@deepseek-ai/dsh-launch-environment'
 import { CredentialProvider, credentialRef } from '@deepseek-ai/dsh-credentials'
 import type { CredentialInfo, CredentialRef, ResolvedCredential } from '@deepseek-ai/dsh-credentials'
 import type { LaunchEnvironmentEntry } from '@deepseek-ai/dsh-launch-environment'
+import { OAuthFileCredentialStore } from './oauth-store.ts'
 
 /** Basename of the credentials document inside the harness home. */
 export const CREDENTIALS_FILENAME = '.credentials.yaml'
@@ -239,11 +240,14 @@ export class LocalCredentialProvider extends CredentialProvider {
   }
   /* jscpd:ignore-end */
 
+  override readonly oauthStore: OAuthFileCredentialStore
+
   constructor(ctx: Context, public config: Config) {
     super(ctx)
     // Programmatic construction may bypass Schemastery normalization; resolve
     // the same defaults in one explicit step either way.
     this.spec = resolveSpec(config)
+    this.oauthStore = new OAuthFileCredentialStore({ dshHome: config.dshHome })
   }
 
   /** The inherited-environment value for a reference, or `undefined` when empty or unset. */
@@ -494,3 +498,5 @@ export class LocalCredentialProvider extends CredentialProvider {
 }
 
 export default LocalCredentialProvider
+export { OAuthFileCredentialStore, OAUTH_CREDENTIALS_FILENAME } from './oauth-store.ts'
+export type { OAuthCredential, OAuthFileCredentialStoreOptions } from './oauth-store.ts'

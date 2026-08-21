@@ -180,20 +180,84 @@ export function catalogProviderIds(): readonly string[] {
  * Whether the installed catalog provider for one route declares an api-key
  * method — the only authentication this adapter obtains on its own.
  *
- * A key is what the harness resolves through its own credential seam and hands
- * pi-ai per request. pi-ai's other method, OAuth, resolves from a *stored*
- * OAuth credential alone: `resolveProviderAuth` has no ambient path for it,
- * this adapter builds its `Models` collection with no credential store, and
- * nothing here runs a login flow. So a provider offering OAuth by itself
- * leaves nothing for this adapter to authenticate with, and the posture such a
- * provider invites — no key configured, credentials discovered by the provider
- * — fails every request with `Provider is not configured`.
  * @param provider - provider route key.
  * @returns whether the catalog provider takes an api key; false for a route
  *   pi-ai does not ship, which the caller answers for separately.
  */
 export function catalogProviderTakesApiKey(provider: string): boolean {
   return catalogProvider(provider)?.auth.apiKey !== undefined
+}
+
+/**
+ * Whether the installed catalog provider for one route declares an api-key
+ * or OAuth authentication method.
+ *
+ * @param provider - provider route key.
+ * @returns whether the catalog provider supports an authentication method; false
+ *   for a route pi-ai does not ship.
+ */
+export function catalogProviderSupportsAuth(provider: string): boolean {
+  const p = catalogProvider(provider)
+  return p?.auth.apiKey !== undefined || p?.auth.oauth !== undefined
+}
+
+/**
+ * Whether the installed catalog provider for one route declares an OAuth
+ * login method.
+ *
+ * @param provider - provider route key.
+ * @returns whether the catalog provider supports OAuth login; false for a route
+ *   pi-ai does not ship or one without OAuth.
+ */
+export function catalogProviderHasOAuth(provider: string): boolean {
+  return catalogProvider(provider)?.auth.oauth !== undefined
+}
+
+/**
+ * Run interactive OAuth login for a catalog provider that supports it.
+ *
+ * @param provider - provider route key.
+ * @param options - interaction hooks and optional abort signal.
+ * @returns the resolved OAuth credential.
+ */
+export async function runCatalogOAuthLogin(
+  provider: string,
+  options: {
+    onAuthUrl?: ((url: string) => void) | undefined
+    signal?: AbortSignal | undefined
+  } = {},
+): Promise<unknown> {
+  const p = catalogProvider(provider)
+  if (p?.auth.oauth === undefined) {
+    throw new Error(`Provider "${provider}" does not support OAuth login`)
+  }
+  const interaction = {
+    ...options.signal === undefined ? {} : { signal: options.signal },
+    prompt: async (req: { type?: string; signal?: AbortSignal }) => {
+      if (req.type === 'select') return 'browser'
+      const signals = [req.signal, options.signal].filter((s): s is AbortSignal => s !== undefined)
+      if (signals.length > 0) {
+        return new Promise<string>((_resolve, reject) => {
+          for (const sig of signals) {
+            if (sig.aborted) {
+              reject(sig.reason instanceof Error ? sig.reason : new Error('aborted'))
+              return
+            }
+            sig.addEventListener('abort', () => {
+              reject(sig.reason instanceof Error ? sig.reason : new Error('aborted'))
+            }, { once: true })
+          }
+        })
+      }
+      return new Promise<string>(() => {})
+    },
+    notify: (event: { type?: string; url?: string }) => {
+      if (event.type === 'auth_url' && typeof event.url === 'string') {
+        options.onAuthUrl?.(event.url)
+      }
+    },
+  }
+  return await p.auth.oauth.login(interaction)
 }
 
 /**
@@ -578,11 +642,19 @@ export interface PiAiModelProfile {
    */
   input?: PiAiModality[]
   /**
-   * Selectable reasoning efforts. Absent inherits the installed catalog
-   * entry's capability (a hand-declared model has none and does not reason);
-   * `false` declares a non-reasoning model, which is how a profile strips
-   * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * `true` enables reasoning with the standard off/low/medium/high/max levels
+   * and their matching wire spellings. Takes effect only when `reasoningEfforts`
+   * is absent; explicit `reasoningEfforts` always wins. Use `reasoningEfforts:
+   * false` to disable reasoning on a catalog model whose gateway cannot serve it.
+   */
+  reasoning?: boolean
+  /**
+   * Selectable reasoning efforts. Absent — with `reasoning` also absent or
+   * `false` — inherits the installed catalog entry's capability (a hand-declared
+   * model has none and does not reason); `false` declares a non-reasoning model,
+   * which is how a profile strips reasoning from a catalog model its gateway
+   * cannot serve; a non-empty dict declares the offered levels and their wire
+   * spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
@@ -608,6 +680,8 @@ export interface RouteCatalogRequest {
   baseURL?: string
   /** Configured catalog; absent means the whole installed catalog for this route. */
   models?: readonly PiAiModelProfile[]
+  /** Additional provider presets served alongside the route's built-in catalog or explicit `models` list. */
+  presets?: readonly PiAiModelProfile[]
   /** Installed-catalog customizations by model id; only meaningful while `models` is absent. */
   modelOverrides?: Readonly<Record<string, PiAiModelOverride>>
   /** Route-level wire-compatibility switches, landing on each model whose protocol declares them; entries override per field. */
@@ -671,6 +745,16 @@ function resolveModelReasoning(
 ): ModelReasoning {
   const efforts = entry.reasoningEfforts
   if (efforts === undefined) {
+    if (entry.reasoning === true) {
+      // Shorthand: emit standard off/low/medium/high/max with identity wire
+      // spellings following the OpenRouter convention. `off` is absent from
+      // the map — pi-ai interprets an absent key as "supported, send nothing"
+      // for off. `minimal` and `xhigh` are pinned to null (unsupported).
+      return {
+        reasoning: true,
+        thinkingLevelMap: { minimal: null, xhigh: null, low: 'low', medium: 'medium', high: 'high', max: 'max' },
+      }
+    }
     // Reasoning rides the installed entry or is absent: a bare capability flag
     // would make pi-ai advertise effort levels with no `thinkingLevelMap` to
     // spell them, and no listing endpoint reports a model's reasoning
@@ -807,6 +891,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // schema materializes `[]` for the absent case, and an empty catalog could
   // serve no request anyway, so both mean "serve the installed catalog".
   const configured = request.models ?? []
+  const presets = request.presets ?? []
   const overrides = request.modelOverrides ?? {}
   // Every miss is refused, never skipped: an override that lands nowhere is a
   // typo someone would otherwise hunt for in a silently unchanged model.
@@ -833,9 +918,10 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // An override becomes the catalog entry's configuration, so everything a
   // models entry may declare — capacities, efforts, compat — resolves through
   // the same path with the same diagnostics and request-default semantics.
-  const entries: readonly PiAiModelProfile[] = configured.length > 0
+  const baseEntries: readonly PiAiModelProfile[] = configured.length > 0
     ? configured
     : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
+  const entries: readonly PiAiModelProfile[] = [...baseEntries, ...presets]
   if (entries.length === 0) {
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')

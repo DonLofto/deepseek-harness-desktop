@@ -24,6 +24,7 @@
 import { createModels, getSupportedThinkingLevels } from '@earendil-works/pi-ai'
 import type {
   Api,
+  CredentialStore,
   Model,
   Models,
   ModelThinkingLevel,
@@ -81,6 +82,8 @@ export interface PiAiAdapterOptions {
    * conversion because its stored replay state is unusable by this build.
    */
   onReplayDegrade?: (detail: { provider: string; model: string; reason: string }) => void
+  /** Optional credential store for OAuth and stored provider credentials. */
+  credentialStore?: CredentialStore | (() => CredentialStore | undefined) | undefined
 }
 
 /** Copy profile stream knobs into pi-ai's common option vocabulary. */
@@ -204,7 +207,12 @@ export class PiAiAdapter extends LlmAdapter {
   private current(): PiAiSnapshot {
     const profiles = this.config.profiles()
     if (this.snapshot?.profiles === profiles) return this.snapshot
-    const models: MutableModels = createModels()
+    const store = typeof this.config.credentialStore === 'function'
+      ? this.config.credentialStore()
+      : this.config.credentialStore
+    const models: MutableModels = createModels(
+      store !== undefined ? { credentials: store } : undefined,
+    )
     for (const profile of profiles.values()) models.setProvider(profile.piProvider)
     this.snapshot = { profiles, models }
     return this.snapshot

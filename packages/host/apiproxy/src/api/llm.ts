@@ -29,6 +29,8 @@ export interface ConfigurableProviderView {
    * surface must treat absence as "unknown", not as "shipped".
    */
   declared?: boolean
+  /** Whether the provider supports automated interactive OAuth login. */
+  oauth?: boolean
 }
 
 /** Llm-domain unary methods (the map keys llm.* of RpcMethodMap). */
@@ -74,6 +76,17 @@ export interface LlmApi {
     }>,
     signal?: AbortSignal,
   ): Promise<RpcResponse<{ models: DiscoveredModelView[] }>>
+
+  /**
+   * Run automated interactive OAuth login for a supported provider.
+   * Starts local PKCE callback server, opens browser URL, and stores the tokens into the OAuth vault.
+   */
+  startOAuthLogin(
+    request: RpcRequest<{
+      provider: string
+    }>,
+    signal?: AbortSignal,
+  ): Promise<RpcResponse<{ ok: boolean; provider: string }>>
 }
 
 /** Wire view of one model an interrogated endpoint advertises. */

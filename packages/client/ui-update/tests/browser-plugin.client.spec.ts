@@ -38,14 +38,16 @@ async function bench(options: { withBridge: boolean }) {
   const getStatus = vi.fn(() => Promise.resolve({ phase: 'idle' }))
   const unsubscribe = vi.fn()
   const onStatus = vi.fn(() => unsubscribe)
+  const install = vi.fn(() => Promise.resolve())
   if (options.withBridge) {
     ;(globalThis as Record<string, unknown>).window = {
-      dshDesktop: { updates: { getStatus, onStatus, check: vi.fn(), install: vi.fn() } },
+      dshDesktop: { updates: { getStatus, onStatus, check: vi.fn(), install } },
     }
   }
+  ctx.locale.setLocale('zh')
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, getStatus, onStatus, unsubscribe }
+  return { ctx, fiber, getStatus, onStatus, unsubscribe, install }
 }
 
 afterEach(() => {
@@ -90,6 +92,136 @@ describe('ui-update browser half', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+
+  it('provides the update slot face and forwards install to the bridge', async () => {
+    const { ctx, install } = await bench({ withBridge: true })
+    const entry = ctx.slots.entries('sidebar.footer.action').find(e => e.options.id === 'update')
+    expect(entry).toBeDefined()
+    const injectFn = entry?.inject as (() => { hooks: { status: unknown }; onInstall: () => void }) | undefined
+    const face = injectFn?.()
+    expect(face).toBeDefined()
+    expect(face?.hooks.status).toBeDefined()
+    face?.onInstall()
+    expect(install).toHaveBeenCalled()
+  })
+
+  it('returns null when window exists but dshDesktop or updates is absent', async () => {
+    ;(globalThis as Record<string, unknown>).window = {}
+    const { readUpdateBridge } = await import('../src/client/desktop-bridge.ts')
+    expect(readUpdateBridge()).toBeNull()
+    ;(globalThis as Record<string, unknown>).window = { dshDesktop: {} }
+    expect(readUpdateBridge()).toBeNull()
+  })
+
+  it('manages status source lifecycle, subscription, deduplication, and equality branches', async () => {
+    const { createUpdateStatusSource } = await import('../src/client/status-source.ts')
+    type UpdateStatus = import('../src/client/desktop-bridge.ts').UpdateStatus
+    let pushStatus!: (status: UpdateStatus) => void
+    const bridge = {
+      getStatus: vi.fn(() => Promise.resolve<UpdateStatus>({ phase: 'checking' })),
+      onStatus: vi.fn((cb: (s: UpdateStatus) => void) => {
+        pushStatus = cb
+        return vi.fn()
+      }),
+      check: vi.fn(() => Promise.resolve()),
+      install: vi.fn(() => Promise.resolve()),
+    }
+    const source = createUpdateStatusSource(bridge)
+    expect(source.getSnapshot()).toEqual({ phase: 'idle' })
+
+    const listener = vi.fn()
+    const unsub = source.subscribe(listener)
+    source.start()
+    expect(bridge.onStatus).toHaveBeenCalled()
+
+    // Wait for getStatus promise
+    await Promise.resolve()
+    expect(source.getSnapshot()).toEqual({ phase: 'checking' })
+    expect(listener).toHaveBeenCalled()
+
+    // Deduplication (same status)
+    listener.mockClear()
+    pushStatus({ phase: 'checking' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Phase change
+    pushStatus({ phase: 'available', version: '1.0.0' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Same available
+    pushStatus({ phase: 'available', version: '1.0.0' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Different version available
+    pushStatus({ phase: 'available', version: '1.0.1' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Downloading
+    pushStatus({ phase: 'downloading', version: '1.0.1', percent: 50 })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Same downloading
+    pushStatus({ phase: 'downloading', version: '1.0.1', percent: 50 })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Downloading different percent
+    pushStatus({ phase: 'downloading', version: '1.0.1', percent: 75 })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Downloading different version
+    pushStatus({ phase: 'downloading', version: '1.0.2', percent: 75 })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Downloaded
+    pushStatus({ phase: 'downloaded', version: '1.0.2' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Downloaded same
+    pushStatus({ phase: 'downloaded', version: '1.0.2' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Downloaded different version
+    pushStatus({ phase: 'downloaded', version: '1.0.3' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Error
+    pushStatus({ phase: 'error', message: 'fail' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Error same
+    pushStatus({ phase: 'error', message: 'fail' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Error different message
+    pushStatus({ phase: 'error', message: 'network error' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Up to date
+    pushStatus({ phase: 'up-to-date' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    // Up to date same
+    pushStatus({ phase: 'up-to-date' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Unsubscribe listener
+    unsub()
+    pushStatus({ phase: 'idle' })
+    expect(listener).not.toHaveBeenCalled()
+
+    // Dispose
+    source.dispose()
   })
 })
 

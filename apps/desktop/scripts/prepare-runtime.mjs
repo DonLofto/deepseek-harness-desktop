@@ -157,15 +157,17 @@ function pruneHarness(harnessDir, target) {
   }
 }
 
-/** Every package directory under `harness/node_modules/<scope>` or `harness/node_modules`. */
+/** Every package directory under `harness` ('.' for root) and `harness/node_modules`. */
 function closurePackageDirs(harnessDir) {
+  const dirs = ['.']
   const nodeModules = join(harnessDir, 'node_modules')
+  if (!existsSync(nodeModules)) return dirs
   const scopes = readdirSync(nodeModules, { withFileTypes: true })
     .filter(entry => entry.name.startsWith('@') && entry.isDirectory())
     .map(entry => entry.name)
-  const dirs = readdirSync(nodeModules, { withFileTypes: true })
-    .filter(entry => !entry.name.startsWith('@') && entry.isDirectory())
-    .map(entry => entry.name)
+  for (const entry of readdirSync(nodeModules, { withFileTypes: true })) {
+    if (!entry.name.startsWith('@') && entry.isDirectory()) dirs.push(entry.name)
+  }
   for (const scope of scopes) {
     for (const entry of readdirSync(join(nodeModules, scope), { withFileTypes: true })) {
       if (entry.isDirectory()) dirs.push(`${scope}/${entry.name}`)
@@ -187,33 +189,40 @@ function closurePackageDirs(harnessDir) {
  */
 function restoreLegacyHoists(harnessDir) {
   const restored = []
-  for (const packageDir of closurePackageDirs(harnessDir)) {
-    const manifestPath = join(harnessDir, 'node_modules', packageDir, 'package.json')
-    let manifest
-    try {
-      manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-    } catch {
-      continue
-    }
-    const declared = { ...manifest.dependencies, ...manifest.optionalDependencies }
-    for (const [name, spec] of Object.entries(declared)) {
-      if (!runtimeRequired(name, spec)) continue
-      if (resolvesInClosure(harnessDir, packageDir, name)) continue
-      const destination = join(harnessDir, 'node_modules', name)
-      const source = workspaceDependencySource(name)
-      if (source === undefined) {
-        throw new Error(
-          `prepare-runtime: ${packageDir} declares ${name}, absent from the staged closure and from the deploy root`,
-        )
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const packageDir of closurePackageDirs(harnessDir)) {
+      const manifestPath = packageDir === '.'
+        ? join(harnessDir, 'package.json')
+        : join(harnessDir, 'node_modules', packageDir, 'package.json')
+      let manifest
+      try {
+        manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+      } catch {
+        continue
       }
-      mkdirSync(dirname(destination), { recursive: true })
-      const nestedNodeModules = join(source, 'node_modules')
-      cpSync(source, destination, {
-        recursive: true,
-        dereference: true,
-        filter: (path) => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
-      })
-      restored.push(name)
+      const declared = { ...manifest.dependencies, ...manifest.optionalDependencies }
+      for (const [name, spec] of Object.entries(declared)) {
+        if (!runtimeRequired(name, spec)) continue
+        if (resolvesInClosure(harnessDir, packageDir, name)) continue
+        const destination = join(harnessDir, 'node_modules', name)
+        const source = workspaceDependencySource(name)
+        if (source === undefined) {
+          throw new Error(
+            `prepare-runtime: ${packageDir} declares ${name}, absent from the staged closure and from the deploy root`,
+          )
+        }
+        mkdirSync(dirname(destination), { recursive: true })
+        const nestedNodeModules = join(source, 'node_modules')
+        cpSync(source, destination, {
+          recursive: true,
+          dereference: true,
+          filter: (path) => path !== nestedNodeModules && !path.startsWith(nestedNodeModules + sep),
+        })
+        restored.push(name)
+        changed = true
+      }
     }
   }
   if (restored.length > 0) {
@@ -223,7 +232,7 @@ function restoreLegacyHoists(harnessDir) {
 
 /** Whether `dependency` resolves from the package at `packageDir`, walking up to the flat root. */
 function resolvesInClosure(harnessDir, packageDir, dependency) {
-  let base = join(harnessDir, 'node_modules', packageDir)
+  let base = packageDir === '.' ? harnessDir : join(harnessDir, 'node_modules', packageDir)
   for (;;) {
     if (existsSync(join(base, 'node_modules', dependency))) return true
     if (base === harnessDir) return false
@@ -333,7 +342,9 @@ try {
 function verifyClosure(harnessDir) {
   const missing = []
   for (const packageDir of closurePackageDirs(harnessDir)) {
-    const manifestPath = join(harnessDir, 'node_modules', packageDir, 'package.json')
+    const manifestPath = packageDir === '.'
+      ? join(harnessDir, 'package.json')
+      : join(harnessDir, 'node_modules', packageDir, 'package.json')
     let manifest
     try {
       manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))

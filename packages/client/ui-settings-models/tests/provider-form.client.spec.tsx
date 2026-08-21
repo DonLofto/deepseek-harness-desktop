@@ -34,6 +34,12 @@ const PiAiConfig = Schema.object({
       contextWindow: Schema.number(),
       maxTokens: Schema.number(),
     })),
+    presets: Schema.array(Schema.object({
+      id: Schema.string().required(),
+      name: Schema.string(),
+      contextWindow: Schema.number(),
+      maxTokens: Schema.number(),
+    })),
     reasoning: Schema.union(['off', 'high']),
   })),
 })
@@ -1402,5 +1408,92 @@ describe('API key field', () => {
     await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
     await waitFor(() => { expect(load).toHaveBeenCalledOnce() })
     expect(screen.queryByText(en.customTitle)).toBeNull()
+  })
+
+  it('allows adding, editing, and saving custom presets for a provider', async () => {
+    const { mutate } = await mountSection()
+    openEditor('openai')
+
+    // Open customized details
+    fireEvent.click(screen.getByText(en.customized))
+
+    // Add preset
+    fireEvent.click(screen.getByRole('button', { name: en.addPreset }))
+    fireEvent.change(screen.getByLabelText(`${en.presetId} 1`), { target: { value: '@preset/deepseek' } })
+    fireEvent.change(screen.getByLabelText(`${en.presetName} 1`), { target: { value: 'My DeepSeek Preset' } })
+
+    // Expand capacity
+    fireEvent.click(screen.getByLabelText(`${en.modelAdvanced} 1`))
+    fireEvent.change(screen.getByLabelText(`${en.modelContextWindow} 1`), { target: { value: '128K' } })
+    fireEvent.change(screen.getByLabelText(`${en.modelMaxTokens} 1`), { target: { value: '16K' } })
+
+    // Apply
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    const ops = firstMutate(mutate).ops
+    expect(ops).toContainEqual({
+      op: 'set',
+      path: ['providers', 'openai', 'presets'],
+      value: [
+        {
+          id: '@preset/deepseek',
+          name: 'My DeepSeek Preset',
+          contextWindow: 128_000,
+          maxTokens: 16_000,
+        },
+      ],
+    })
+  })
+
+  it('allows removing presets', async () => {
+    const providers = {
+      openrouter: {
+        apiKeyEnv: 'OPENROUTER_API_KEY',
+        baseURL: 'https://openrouter.ai/api/v1',
+        presets: [{ id: '@preset/deepseek', name: 'My DeepSeek Preset' }],
+      },
+    }
+    const { mutate } = await mountSection({ providers })
+    openEditor('openrouter')
+
+    fireEvent.click(screen.getByText(en.customized))
+    expect(screen.getByDisplayValue('@preset/deepseek')).toBeDefined()
+
+    // Delete the preset
+    fireEvent.click(screen.getByLabelText(`${en.removePreset} 1`))
+    expect(screen.queryByDisplayValue('@preset/deepseek')).toBeNull()
+
+    // Apply
+    fireEvent.click(screen.getByRole('button', { name: en.apply }))
+
+    await waitFor(() => { expect(mutate).toHaveBeenCalledOnce() })
+    const ops = firstMutate(mutate).ops
+    expect(ops).toContainEqual({
+      op: 'unset',
+      path: ['providers', 'openrouter', 'presets'],
+    })
+  })
+
+  it('validates preset rows and blocks apply on empty or duplicate preset id', async () => {
+    await mountSection()
+    openEditor('openai')
+
+    fireEvent.click(screen.getByText(en.customized))
+    fireEvent.click(screen.getByRole('button', { name: en.addPreset }))
+
+    // Empty preset id blocks Apply
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+
+    // Fill valid id
+    fireEvent.change(screen.getByLabelText(`${en.presetId} 1`), { target: { value: '@preset/first' } })
+    expect(buttonNamed(en.apply).disabled).toBe(false)
+
+    // Add duplicate preset
+    fireEvent.click(screen.getByRole('button', { name: en.addPreset }))
+    fireEvent.change(screen.getByLabelText(`${en.presetId} 2`), { target: { value: '@preset/first' } })
+
+    expect(buttonNamed(en.apply).disabled).toBe(true)
+    expect(screen.getByText(`${en.preset} 2: ${en.presetIdDuplicate}`)).toBeDefined()
   })
 })

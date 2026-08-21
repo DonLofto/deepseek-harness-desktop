@@ -3294,6 +3294,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           settingsPath: [...entry.settingsPath],
           active: active.has(entry.provider),
           ...entry.declared === undefined ? {} : { declared: entry.declared },
+          ...entry.oauth === true ? { oauth: true } : {},
         }))
         // Routes registered without a directory declaration still appear —
         // they exist and serve models — just with no settings address. No
@@ -3335,6 +3336,29 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             code: 'model-discovery-failed',
             message: error instanceof Error ? error.message : String(error),
             details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
+          })
+        }
+      },
+
+      async startOAuthLogin(request, signal) {
+        const { provider } = request.payload
+        try {
+          const creds = await ctx.llm.startOAuthLogin(provider, {
+            onAuthUrl: (url) => {
+              void openPath(request, url, signal ?? new AbortController().signal)
+            },
+            ...signal === undefined ? {} : { signal },
+          })
+          const credProvider = ctx.get('credentials')
+          if (credProvider?.oauthStore) {
+            await credProvider.oauthStore.modify(provider, () => creds as Record<string, unknown> | undefined)
+          }
+          return ok(request, { ok: true, provider })
+        } catch (error: unknown) {
+          return err(request, {
+            code: 'internal',
+            message: error instanceof Error ? error.message : String(error),
+            details: {},
           })
         }
       },

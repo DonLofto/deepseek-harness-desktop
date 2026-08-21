@@ -101,6 +101,11 @@ export interface PiAiProviderProfile {
    */
   models?: PiAiModelProfile[]
   /**
+   * Additional provider presets (e.g. OpenRouter `@preset/<slug>` models) served
+   * alongside the route's built-in catalog or explicit `models` list.
+   */
+  presets?: PiAiModelProfile[]
+  /**
    * Installed-catalog customizations by model id: each entry reshapes that
    * one model with the same fields a {@link models} entry takes, while the
    * rest of the catalog keeps serving untouched. Only meaningful on a catalog
@@ -277,6 +282,10 @@ const modelFields = {
   // materializes `[]` for an absent array, and resolution reads that as "no
   // answer here" so the catalog entry below still applies.
   input: z.array(z.union(MODALITIES)),
+  // Shorthand to enable reasoning with standard off/low/medium/high/max
+  // levels on a hand-declared model (e.g. a preset) that has none from the
+  // installed catalog. Explicit `reasoningEfforts` always takes precedence.
+  reasoning: z.boolean(),
   // The union, not a bare dict: schemastery materializes an absent dict as
   // `{}`, and absent must stay distinguishable — it means "inherit the
   // installed catalog's capability", while `false` disables reasoning.
@@ -298,6 +307,7 @@ const profile = z.object({
   api: z.union(supportedProtocols()),
   baseURL: z.string(),
   models: z.array(modelProfile),
+  presets: z.array(modelProfile),
   modelOverrides: z.dict(modelOverride),
   compat: compatProfile,
   defaultContextWindow: z.number().step(1).min(1).default(DEFAULT_CONTEXT_WINDOW),
@@ -409,13 +419,14 @@ export function resolveProfiles(
       ...source.api === undefined ? {} : { api: source.api },
       ...source.baseURL === undefined ? {} : { baseURL: source.baseURL },
       ...source.models === undefined ? {} : { models: source.models },
+      ...source.presets === undefined ? {} : { presets: source.presets },
       ...source.modelOverrides === undefined ? {} : { modelOverrides: source.modelOverrides },
       ...source.compat === undefined ? {} : { compat: source.compat },
       defaultInput,
       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
     })
-    const { apiKeyEnv, retryPolicy, models: _models, displayName: _displayName, ...rest } = source
+    const { apiKeyEnv, retryPolicy, models: _models, presets: _presets, displayName: _displayName, ...rest } = source
     resolved.set(provider, {
       ...rest,
       provider,
