@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import ts from 'typescript'
 import { repositoryConfigHost } from './ts-project.ts'
 
-const knownOrphanEntries = new Set(['node_modules', 'lib', '.typecheck'])
+const knownOrphanEntries = new Set(['node_modules', 'lib', '.typecheck', '.DS_Store'])
 
 function isMissing(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT'
@@ -79,6 +79,11 @@ export class RepositoryCleaner {
       join(this.root, 'native/landlock-run/tsconfig.tsbuildinfo'),
       canonicalRoot,
     )
+    await this.addIfPresent(
+      targets,
+      join(this.root, 'apps/desktop/tsconfig.tsbuildinfo'),
+      canonicalRoot,
+    )
 
     // The root project-reference graph is the source of truth for live build targets.
     // Each emitting project declares lib/types as outDir; its parent lib also owns
@@ -135,7 +140,7 @@ export class RepositoryCleaner {
         const typesDirectory = resolve(parsed.options.outDir)
         const outputDirectory = basename(typesDirectory) === 'types'
           ? dirname(typesDirectory)
-          : typesDirectory === nativeEntryOutput
+          : typesDirectory === nativeEntryOutput || basename(typesDirectory) === 'lib'
             ? typesDirectory
             : undefined
         if (outputDirectory === undefined) {
