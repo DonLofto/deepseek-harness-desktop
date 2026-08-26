@@ -961,6 +961,35 @@ export interface DeepSeekCatalogModel {
 
 来源：[`packages/llm/llm-deepseek/src/index.ts:66`](../packages/llm/llm-deepseek/src/index.ts)
 
+<a id="deepseek-aidsh-llm-gemini"></a>
+
+## `@deepseek-ai/dsh-llm-gemini`
+
+需要：`llm`
+
+```ts config-catalog
+/**
+ * Plugin configuration type, alias for {@link GeminiConfig}.
+ */
+export type Config = GeminiConfig
+
+/**
+ * Raw configuration options for the Gemini LLM provider.
+ */
+export interface GeminiConfig {
+  /** Cloud Code PA endpoint for onboarding, entitlements, and quota synchronization. */
+  cloudCodeEndpoint?: string
+  /** Gemini API server URL for model streaming inference. */
+  apiServerUrl?: string
+  /** Hub or IDE client type passed to Cloud Code PA. */
+  subclientType?: string
+  /** Client IDE name passed to Cloud Code PA. */
+  ideName?: string
+}
+```
+
+来源：[`packages/llm/llm-gemini/src/config.ts:37`](../packages/llm/llm-gemini/src/config.ts)
+
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
 ## `@deepseek-ai/dsh-llm-pi-ai`
@@ -976,6 +1005,8 @@ export interface Config {
    * and registers them the moment a settings section supplies profiles.
    */
   providers?: Record<string, PiAiProviderProfile>
+  /** Cache TTL in milliseconds for dynamic OpenRouter catalog discovery. */
+  openrouterCatalogTtlMs?: number
 }
 
 /** Configuration for one pi-ai provider route; the `providers` dict key IS the route. */
@@ -998,6 +1029,11 @@ export interface PiAiProviderProfile {
    * unset fields from the installed model of the same id.
    */
   models?: PiAiModelProfile[]
+  /**
+   * Additional provider presets (e.g. OpenRouter `@preset/<slug>` models) served
+   * alongside the route's built-in catalog or explicit `models` list.
+   */
+  presets?: PiAiModelProfile[]
   /**
    * Installed-catalog customizations by model id: each entry reshapes that
    * one model with the same fields a {@link models} entry takes, while the
@@ -1063,6 +1099,8 @@ export interface PiAiProviderProfile {
   maxRequestImageBytes?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
+  /** Cache TTL in milliseconds for dynamic OpenRouter catalog discovery. */
+  openrouterCatalogTtlMs?: number
 }
 
 /** One configured model entry: an id plus the catalog fields it overrides. */
@@ -1093,11 +1131,19 @@ export interface PiAiModelProfile {
    */
   input?: PiAiModality[]
   /**
-   * Selectable reasoning efforts. Absent inherits the installed catalog
-   * entry's capability (a hand-declared model has none and does not reason);
-   * `false` declares a non-reasoning model, which is how a profile strips
-   * reasoning from a catalog model its gateway cannot serve; a non-empty dict
-   * declares the offered levels and their wire spellings.
+   * `true` enables reasoning with the standard off/low/medium/high/max levels
+   * and their matching wire spellings. Takes effect only when `reasoningEfforts`
+   * is absent; explicit `reasoningEfforts` always wins. Use `reasoningEfforts:
+   * false` to disable reasoning on a catalog model whose gateway cannot serve it.
+   */
+  reasoning?: boolean
+  /**
+   * Selectable reasoning efforts. Absent — with `reasoning` also absent or
+   * `false` — inherits the installed catalog entry's capability (a hand-declared
+   * model has none and does not reason); `false` declares a non-reasoning model,
+   * which is how a profile strips reasoning from a catalog model its gateway
+   * cannot serve; a non-empty dict declares the offered levels and their wire
+   * spellings.
    */
   reasoningEfforts?: false | PiAiReasoningEfforts
   /** pi-ai wire-compatibility switches for this model, winning over the route's per field; one its protocol does not declare is refused. */
@@ -1207,9 +1253,9 @@ export type PiAiReasoningEfforts = Partial<Record<ModelThinkingLevel, string | n
 export type PiAiThinkingFormat = NonNullable<OpenAICompletionsCompat['thinkingFormat']>
 ```
 
-依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`)
+依赖：`Api`（`@earendil-works/pi-ai`）· `CacheRetention`（`@earendil-works/pi-ai`）· `Model`（`@earendil-works/pi-ai`）· `ModelThinkingLevel`（`@earendil-works/pi-ai`）· `OpenAICompletionsCompat`（`@earendil-works/pi-ai`）· [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets`（`@earendil-works/pi-ai`）· `Transport`（`@earendil-works/pi-ai`）
 
-来源：[`packages/llm/llm-pi-ai/src/config.ts:201`](../packages/llm/llm-pi-ai/src/config.ts)
+来源：[`packages/llm/llm-pi-ai/src/config.ts:234`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 

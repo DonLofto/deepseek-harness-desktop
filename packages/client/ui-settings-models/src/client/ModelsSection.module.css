@@ -646,8 +646,39 @@ select.input {
 
 .candidateActions {
   display: flex;
-  justify-content: flex-end;
-  margin-bottom: 6px;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.candidateSearch {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  height: 28px;
+  padding: 4px 8px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 18px;
+  outline: none;
+}
+
+.candidateSearch:focus {
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.candidateSearch::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.emptyCandidates {
+  margin: 12px 0;
+  padding: 12px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 13px;
 }
 
 .candidateList {

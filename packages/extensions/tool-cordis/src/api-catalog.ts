@@ -581,6 +581,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Abstract credential service. Providers implement the four operations over their source layers; one seam-wide rule binds them all: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.',
     methods: [
       {
+        signature: 'oauthStore?: OAuthCredentialStoreLike',
+        description: 'Optional OAuth credential store for provider token management.',
+        parameters: [],
+      },
+      {
         signature: 'abstract resolve(ref: CredentialRef): Promise<ResolvedCredential | undefined>',
         description: 'Resolve one reference to its current value. Resolution is per call: consumers re-resolve at each operation and must not cache across operations — that per-operation read is what makes a changed credential reach the next operation without a restart.',
         parameters: [{ name: 'ref', description: 'the reference to resolve.' }],
@@ -921,6 +926,18 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Interrogate one provider endpoint for the models it advertises. The request describes a draft, not a stored route, so nothing here reads or writes settings or credentials — the caller owns both, and the reply is candidate metadata a surface may offer for adoption.',
         parameters: [{ name: 'settingsNs', description: 'namespace whose registered discovery serves this draft.' }, { name: 'request', description: 'the endpoint, protocol, and one-shot credential to use.' }],
         returns: 'the advertised models, deduplicated in endpoint order.',
+      },
+      {
+        signature: 'registerOAuthLogin( provider: string, login: (options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined }) => Promise<unknown>, ): () => void',
+        description: 'Register an OAuth login handler for one provider route.',
+        parameters: [{ name: 'provider', description: 'the provider route this login handler serves.' }, { name: 'login', description: 'interactive login handler.' }],
+        returns: 'the disposer that withdraws the handler.',
+      },
+      {
+        signature: 'async startOAuthLogin( provider: string, options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined } = {}, ): Promise<unknown>',
+        description: 'Start interactive OAuth login for one provider route.',
+        parameters: [{ name: 'provider', description: 'provider route key.' }, { name: 'options', description: 'interaction hooks and optional abort signal.' }],
+        returns: 'the resolved OAuth credential.',
       },
       {
         signature: 'providerRetryPolicy(provider: string): ResolvedRetryPolicy',
@@ -3398,7 +3415,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmConfigurableProvider',
-    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n}',
+    declaration: 'export interface LlmConfigurableProvider {\n    provider: string;\n    displayName: string;\n    settingsNs: string;\n    settingsPath: readonly string[];\n    declared?: boolean;\n    oauth?: boolean;\n}',
   },
   {
     name: 'LlmDiscoveredModel',
@@ -3438,7 +3455,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'LlmRuntime',
-    declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIterable<StreamChunk>;\n}',
+    declaration: 'export class LlmRuntime extends Service {\n    constructor(ctx: Context);\n    registerAdapter(providers: string[], adapter: LlmAdapter): AdapterRegistrationHandle;\n    listProviders(): LlmProviderInfo[];\n    registerConfigurableProviders(entries: readonly LlmConfigurableProvider[]): DirectoryRegistrationHandle;\n    listConfigurableProviders(): LlmConfigurableProvider[];\n    registerModelDiscovery(settingsNs: string, discover: (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>): () => void;\n    async discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<LlmDiscoveredModel[]>;\n    registerOAuthLogin(provider: string, login: (options: {\n        onAuthUrl?: ((url: string) => void) | undefined;\n        signal?: AbortSignal | undefined;\n    }) => Promise<unknown>): () => void;\n    async startOAuthLogin(provider: string, options: {\n        onAuthUrl?: ((url: string) => void) | undefined;\n        signal?: AbortSignal | undefined;\n    } = {}): Promise<unknown>;\n    providerRetryPolicy(provider: string): ResolvedRetryPolicy;\n    async listModels(provider: string): Promise<LlmModelInfo[]>;\n    async resolveModelInfo(provider: string, model: string, signal?: AbortSignal): Promise<LlmResolvedModelInfo>;\n    async resolveCallConfig(config: LlmCallConfig, signal?: AbortSignal): Promise<LlmCallConfig>;\n    async prepareCall(config: LlmCallConfig, signal?: AbortSignal): Promise<PreparedLlmCall>;\n    stream(options: GenerateOptions): AsyncIter /* …truncated — full shape in source */',
   },
   {
     name: 'LspHover',
@@ -3587,6 +3604,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ModelModalityMap',
     declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
+  },
+  {
+    name: 'OAuthCredentialStoreLike',
+    declaration: 'export interface OAuthCredentialStoreLike {\n    read(providerId: string): Promise<Record<string, unknown> | undefined>;\n    modify(providerId: string, fn: (current: Record<string, unknown> | undefined) => Promise<Record<string, unknown> | undefined> | Record<string, unknown> | undefined): Promise<Record<string, unknown> | undefined>;\n    delete(providerId: string): Promise<void>;\n    list(): Promise<Array<{\n        providerId: string;\n        type: string;\n    }>>;\n}',
   },
   {
     name: 'ObjectJsonSchema',

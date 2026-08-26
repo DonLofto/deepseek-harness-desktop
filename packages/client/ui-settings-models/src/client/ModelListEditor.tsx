@@ -14,7 +14,7 @@
  * rows the user can still fill in by hand.
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -163,6 +163,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
+  const [candidateSearch, setCandidateSearch] = useState('')
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   // Rows carry an id and a name; capacities are the exception, so they stay
   // folded until asked for rather than crowding every row with four inputs.
@@ -247,10 +248,11 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         setFailure(t('fetchEmpty'))
         return
       }
+      setCandidates(found)
+      setCandidateSearch('')
       // Everything already configured starts unchecked, so adopting a
       // selection never silently rewrites a capacity the user corrected.
       const known = new Set(models.map(model => textOf(model, 'id')))
-      setCandidates(found)
       setPicked(new Set(found.filter(model => !known.has(model.id)).map(model => model.id)))
     } catch (error) {
       // The transport rejected rather than answering; without this the button
@@ -264,6 +266,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const closePicker = (): void => {
     setCandidates(undefined)
     setPicked(new Set())
+    setCandidateSearch('')
   }
 
   const adoptPicked = (): void => {
@@ -290,15 +293,28 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     })
   }
 
+  const query = candidateSearch.trim().toLowerCase()
   const activeCandidates = candidates ?? []
-  const allCandidatesPicked = activeCandidates.length > 0
-    && activeCandidates.every(candidate => picked.has(candidate.id))
+  const filteredCandidates = useMemo(() => {
+    if (!query) return activeCandidates
+    return activeCandidates.filter(c =>
+      c.id.toLowerCase().includes(query)
+      || (c.name !== undefined && c.name.toLowerCase().includes(query)),
+    )
+  }, [activeCandidates, query])
+
+  const allCandidatesPicked = filteredCandidates.length > 0
+    && filteredCandidates.every(candidate => picked.has(candidate.id))
 
   const toggleAllCandidates = (): void => {
     setPicked((current) => {
-      return activeCandidates.every(candidate => current.has(candidate.id))
-        ? new Set()
-        : new Set(activeCandidates.map(candidate => candidate.id))
+      const next = new Set(current)
+      if (allCandidatesPicked) {
+        for (const candidate of filteredCandidates) next.delete(candidate.id)
+      } else {
+        for (const candidate of filteredCandidates) next.add(candidate.id)
+      }
+      return next
     })
   }
 
@@ -458,27 +474,38 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         )}
       >
         <div className={styles['candidateActions']}>
+          <input
+            type="text"
+            className={styles['candidateSearch']}
+            placeholder={t('fetchSearchPlaceholder')}
+            value={candidateSearch}
+            onChange={(event) => { setCandidateSearch(event.target.value) }}
+          />
           <Button variant="ghost" size="sm" onClick={toggleAllCandidates}>
             {t(allCandidatesPicked ? 'fetchDeselectAll' : 'fetchSelectAll')}
           </Button>
         </div>
-        <ul className={styles['candidateList']}>
-          {(candidates ?? []).map(candidate => (
-            <li key={candidate.id} className={styles['candidate']}>
-              <label className={styles['candidateLabel']}>
-                <input
-                  type="checkbox"
-                  checked={picked.has(candidate.id)}
-                  onChange={() => { toggle(candidate.id) }}
-                />
-                {/* The id alone: it is the string adoption writes, and the
-                    capacities the endpoint reported are adopted with it and
-                    editable in the row that appears. */}
-                <span className={styles['candidateId']}>{candidate.id}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
+        {filteredCandidates.length === 0 && query.length > 0 ? (
+          <p className={styles['emptyCandidates']}>{t('fetchEmptySearch')}</p>
+        ) : (
+          <ul className={styles['candidateList']}>
+            {filteredCandidates.map(candidate => (
+              <li key={candidate.id} className={styles['candidate']}>
+                <label className={styles['candidateLabel']}>
+                  <input
+                    type="checkbox"
+                    checked={picked.has(candidate.id)}
+                    onChange={() => { toggle(candidate.id) }}
+                  />
+                  {/* The id alone: it is the string adoption writes, and the
+                      capacities the endpoint reported are adopted with it and
+                      editable in the row that appears. */}
+                  <span className={styles['candidateId']}>{candidate.id}</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
       </Modal>
     </section>
   )

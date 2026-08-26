@@ -170,17 +170,31 @@ export interface PiAiProviderProfile {
   maxRequestImageBytes?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
+  /** Cache TTL in milliseconds for dynamic OpenRouter catalog discovery. */
+  openrouterCatalogTtlMs?: number
 }
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
 export interface ResolvedPiAiProviderProfile
-  extends Omit<PiAiProviderProfile, 'apiKeyEnv' | 'retryPolicy' | 'models' | 'displayName'> {
+  extends Omit<
+    PiAiProviderProfile,
+    | 'apiKeyEnv'
+    | 'retryPolicy'
+    | 'displayName'
+    | 'models'
+    | 'presets'
+    | 'modelOverrides'
+    | 'defaultInput'
+    | 'defaultContextWindow'
+    | 'defaultMaxTokens'
+    | 'openrouterCatalogTtlMs'
+  > {
   /** Harness route key and the `Models` collection key (the configuration dict key). */
   provider: string
   /** Resolved display name for selectors and configuration surfaces. */
   displayName: string
   /** Validated credential reference, when one is configured. */
-  apiKeyEnv?: CredentialRef
+  apiKeyEnv?: CredentialRef | undefined
   /** Positive finite provider-idle interval after defaulting. */
   streamIdleTimeoutMs: number
   /** Positive request-level base64 image payload bound after defaulting. */
@@ -200,6 +214,20 @@ export interface ResolvedPiAiProviderProfile
    * own, so a catalog capability must not appear here.
    */
   configuredMaxTokens: ReadonlyMap<string, number>
+  /** Configured models list, if any. */
+  models?: PiAiModelProfile[] | undefined
+  /** Configured presets list, if any. */
+  presets?: PiAiModelProfile[] | undefined
+  /** Configured model overrides, if any. */
+  modelOverrides?: Record<string, PiAiModelOverride> | undefined
+  /** Route default input modalities. */
+  defaultInput?: PiAiModality[] | undefined
+  /** Route default context window. */
+  defaultContextWindow?: number | undefined
+  /** Route default max tokens. */
+  defaultMaxTokens?: number | undefined
+  /** Cache TTL in milliseconds for dynamic OpenRouter catalog discovery. */
+  openrouterCatalogTtlMs?: number | undefined
 }
 
 /** Plugin configuration: the provider routes this instance owns. */
@@ -210,6 +238,8 @@ export interface Config {
    * and registers them the moment a settings section supplies profiles.
    */
   providers?: Record<string, PiAiProviderProfile>
+  /** Cache TTL in milliseconds for dynamic OpenRouter catalog discovery. */
+  openrouterCatalogTtlMs?: number
 }
 
 const thinkingBudgets = z.object({
@@ -323,11 +353,13 @@ const profile = z.object({
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
   retryPolicy: RetryPolicySchema,
+  openrouterCatalogTtlMs: z.natural(),
 })
 
 /** Runtime schema for {@link Config}. */
 export const Config: z<Config> = z.object({
   providers: z.dict(profile).default({}),
+  openrouterCatalogTtlMs: z.natural(),
 })
 
 /**
@@ -426,7 +458,19 @@ export function resolveProfiles(
       defaultContextWindow: source.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
       defaultMaxTokens: source.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
     })
-    const { apiKeyEnv, retryPolicy, models: _models, presets: _presets, displayName: _displayName, ...rest } = source
+    const {
+      apiKeyEnv,
+      retryPolicy,
+      displayName: _displayName,
+      models,
+      presets,
+      modelOverrides,
+      defaultInput: _defaultInput,
+      defaultContextWindow: _defaultContextWindow,
+      defaultMaxTokens: _defaultMaxTokens,
+      openrouterCatalogTtlMs,
+      ...rest
+    } = source
     resolved.set(provider, {
       ...rest,
       provider,
@@ -438,6 +482,13 @@ export function resolveProfiles(
       ...rest.headers === undefined ? {} : { headers: { ...rest.headers } },
       ...rest.thinkingBudgets === undefined ? {} : { thinkingBudgets: { ...rest.thinkingBudgets } },
       configuredMaxTokens: catalog.configuredMaxTokens,
+      ...models === undefined ? {} : { models },
+      ...presets === undefined ? {} : { presets },
+      ...modelOverrides === undefined ? {} : { modelOverrides },
+      ...defaultInput === undefined ? {} : { defaultInput },
+      ...source.defaultContextWindow === undefined ? {} : { defaultContextWindow: source.defaultContextWindow },
+      ...source.defaultMaxTokens === undefined ? {} : { defaultMaxTokens: source.defaultMaxTokens },
+      ...openrouterCatalogTtlMs === undefined ? {} : { openrouterCatalogTtlMs },
       piProvider: buildProvider({
         provider,
         displayName,

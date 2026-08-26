@@ -52,6 +52,7 @@ export function ModelSelect(
   )
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  const [search, setSearch] = useState('')
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
   // instead, so the strip renders only while the latest failure-capable
@@ -61,6 +62,7 @@ export function ModelSelect(
   const toastSeq = useRef(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
@@ -76,6 +78,24 @@ export function ModelSelect(
           : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
     }))), [state.groups])
+
+  const query = search.trim().toLowerCase()
+  const filteredGroups = useMemo(() => {
+    if (!query) return state.groups
+    return state.groups
+      .map((group) => {
+        const matchesGroup = group.name.toLowerCase().includes(query)
+        const models = group.models.filter(model =>
+          matchesGroup
+          || model.name.toLowerCase().includes(query)
+          || model.id.toLowerCase().includes(query)
+          || (model.description !== undefined && model.description.toLowerCase().includes(query)),
+        )
+        return { ...group, models }
+      })
+      .filter(group => group.models.length > 0)
+  }, [state.groups, query])
+
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
@@ -124,9 +144,16 @@ export function ModelSelect(
     return () => { document.removeEventListener('mousedown', closeOutside) }
   }, [open])
 
+  useEffect(() => {
+    if (open && pane === 'model') {
+      searchInputRef.current?.focus()
+    }
+  }, [open, pane])
+
   if (!available) return null
 
   const show = (): void => {
+    setSearch('')
     setPane('root')
     setOpen(true)
     reload()
@@ -134,6 +161,7 @@ export function ModelSelect(
 
   const close = (restoreFocus = false): void => {
     setOpen(false)
+    setSearch('')
     setPane('root')
     if (restoreFocus) queueMicrotask(() => { triggerRef.current?.focus() })
   }
@@ -146,18 +174,56 @@ export function ModelSelect(
     items[next]?.focus()
   }
 
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      const firstItem = itemRefs.current.find(item => item !== null)
+      firstItem?.focus()
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      const firstGroup = filteredGroups[0]
+      const firstModel = firstGroup?.models[0]
+      if (firstGroup && firstModel) {
+        choose({ provider: firstGroup.id, model: firstModel.id })
+      }
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      if (search.length > 0) {
+        setSearch('')
+      } else {
+        setPane('root')
+      }
+    }
+  }
+
   const onRootKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
     if (event.key === 'Escape' && open) {
       event.preventDefault()
       // Escape backs out of a drilled pane first, then closes.
-      if (pane !== 'root') setPane('root')
-      else close(true)
+      if (pane !== 'root') {
+        setSearch('')
+        setPane('root')
+      } else {
+        close(true)
+      }
       return
     }
     if (!open) return
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      moveFocus(event.key === 'ArrowDown' ? 1 : -1)
+      if (document.activeElement === searchInputRef.current && event.key === 'ArrowDown') {
+        event.preventDefault()
+        const firstItem = itemRefs.current.find(item => item !== null)
+        firstItem?.focus()
+        return
+      }
+      if (document.activeElement !== searchInputRef.current) {
+        event.preventDefault()
+        moveFocus(event.key === 'ArrowDown' ? 1 : -1)
+      }
     }
   }
 
@@ -268,6 +334,17 @@ export function ModelSelect(
 
           {pane === 'model' && (
             <>
+              <div className={css.searchWrapper}>
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  className={css.searchInput}
+                  placeholder={t('search.placeholder')}
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value) }}
+                  onKeyDown={onSearchKeyDown}
+                />
+              </div>
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}
@@ -284,7 +361,7 @@ export function ModelSelect(
                 </div>
               ))}
               <div className={clsx(css.groups, 'scrollable')}>
-                {state.groups.map((group) => {
+                {filteredGroups.map((group) => {
                   const headingId = `${id}-${group.id}`
                   return (
                     <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
@@ -321,6 +398,9 @@ export function ModelSelect(
               </div>
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
+              )}
+              {state.status === 'ready' && choices.length > 0 && filteredGroups.length === 0 && query.length > 0 && (
+                <div className={css.empty}>{t('empty.search')}</div>
               )}
             </>
           )}

@@ -34,7 +34,7 @@ import type {
  * never reads pi-ai's cost metadata — `replay.ts` zeroes it and no consumer
  * reports spend — so this is the absence of a fact, not a configurable rate.
  */
-const NO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
+export const NO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
 /** One request modality a pi-ai model may accept. */
 export type PiAiModality = Model<Api>['input'][number]

@@ -181,4 +181,67 @@ describe('ModelSelect reasoning effort', () => {
     expect(screen.queryByRole('button')).toBeNull()
     expect(load).not.toHaveBeenCalled()
   })
+
+  it('filters models in real time based on search input and shows empty search message when none match', async () => {
+    const groups = [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        models: [
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'openai/gpt-4o', name: 'GPT-4o' },
+          { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1' },
+        ],
+      },
+    ]
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups,
+      current: { provider: 'openrouter', model: 'openai/gpt-4o' },
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+
+    const searchInput = screen.getByPlaceholderText('搜索模型…')
+    expect(searchInput).toBeTruthy()
+
+    // All 3 models visible initially
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual([
+      'Claude 3.5 Sonnet',
+      'GPT-4o',
+      'DeepSeek R1',
+    ])
+
+    // Type "claude" -> only Claude 3.5 Sonnet shown
+    fireEvent.change(searchInput, { target: { value: 'claude' } })
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual([
+      'Claude 3.5 Sonnet',
+    ])
+
+    // Type nonexistent model -> shows empty search message
+    fireEvent.change(searchInput, { target: { value: 'nonexistent-model-xyz' } })
+    expect(screen.queryByRole('menuitemradio')).toBeNull()
+    expect(screen.getByText('未找到匹配的模型。')).toBeTruthy()
+
+    // Pressing Enter with search selects first match
+    fireEvent.change(searchInput, { target: { value: 'deepseek' } })
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual([
+      'DeepSeek R1',
+    ])
+    fireEvent.keyDown(searchInput, { key: 'Enter' })
+    expect(select).toHaveBeenCalledWith({
+      provider: 'openrouter',
+      model: 'deepseek/deepseek-r1',
+    })
+  })
 })

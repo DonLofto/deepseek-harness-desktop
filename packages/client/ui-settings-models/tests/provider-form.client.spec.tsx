@@ -498,6 +498,41 @@ describe('endpoint interrogation', () => {
     ])
   })
 
+  it('filters candidate models via search input in the adoption modal', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok({
+      models: [
+        { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+        { id: 'openai/gpt-4o', name: 'GPT-4o' },
+        { id: 'deepseek/deepseek-r1', name: 'DeepSeek R1' },
+      ],
+    })))
+    await mountSection({
+      discover,
+      providers: { openrouter: { baseURL: 'https://openrouter.ai/api/v1' } },
+    })
+    openEditor('openrouter')
+
+    fireEvent.click(screen.getByText(en.fetchModels))
+    await screen.findByText(en.fetchTitle)
+
+    const searchInput = screen.getByPlaceholderText(en.fetchSearchPlaceholder)
+    expect(searchInput).toBeTruthy()
+
+    expect(screen.getByText('anthropic/claude-3.5-sonnet')).toBeTruthy()
+    expect(screen.getByText('openai/gpt-4o')).toBeTruthy()
+    expect(screen.getByText('deepseek/deepseek-r1')).toBeTruthy()
+
+    // Type "claude" -> only claude is shown
+    fireEvent.change(searchInput, { target: { value: 'claude' } })
+    expect(screen.getByText('anthropic/claude-3.5-sonnet')).toBeTruthy()
+    expect(screen.queryByText('openai/gpt-4o')).toBeNull()
+    expect(screen.queryByText('deepseek/deepseek-r1')).toBeNull()
+
+    // Type unmatched query -> empty message shown
+    fireEvent.change(searchInput, { target: { value: 'nonexistent-model' } })
+    expect(screen.getByText(en.fetchEmptySearch)).toBeTruthy()
+  })
+
   it('keeps the rows editable when the provider cannot be interrogated', async () => {
     const discover = vi.fn(() => Promise.resolve(
       fail('https://proxy.example/v1/models answered 401; check the API key', 'model-discovery-failed'),

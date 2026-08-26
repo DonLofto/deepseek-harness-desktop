@@ -49,7 +49,17 @@ export async function mockServer(script: {
       paths.push(request.url ?? '')
       requests.push(body.length === 0 ? undefined : JSON.parse(body))
       headers.push(request.headers)
+      if (request.method === 'GET' && request.url?.endsWith('/models') && script[0]?.events !== undefined) {
+        response.writeHead(404, { 'content-type': 'application/json' })
+        response.end('{}')
+        return
+      }
       const behavior = script.shift() ?? { status: 500, body: 'script exhausted' }
+      if (behavior.body !== undefined) {
+        response.writeHead(behavior.status ?? 200, { 'content-type': 'application/json', ...behavior.headers })
+        response.end(behavior.body)
+        return
+      }
       if (behavior.status !== undefined && behavior.status !== 200) {
         response.writeHead(behavior.status, { 'content-type': 'application/json', ...behavior.headers })
         response.end(behavior.body ?? '{}')

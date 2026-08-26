@@ -26,6 +26,7 @@ import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai
 import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { catalogModels } from './catalog.ts'
+import { fetchOpenRouterDiscovery } from './openrouter.ts'
 
 /**
  * Protocols whose model listing this module can read: the two that speak
@@ -196,6 +197,18 @@ export async function discoverModels(
   request: LlmModelDiscoveryRequest,
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
+  // OpenRouter provides a dynamic listing endpoint that carries hundreds of live models.
+  if (request.provider === 'openrouter') {
+    const supplied = request.apiKey ?? await storedApiKey?.()
+    const discovered = await fetchOpenRouterDiscovery({
+      apiKey: supplied,
+      baseURL: request.baseURL,
+      signal: request.signal,
+      provider: request.provider,
+    })
+    if (discovered.length > 0) return discovered
+  }
+
   // A catalog route already has its answer, and a better one: the installed
   // entries carry context windows and output caps no listing endpoint reports.
   if (request.provider !== undefined) {

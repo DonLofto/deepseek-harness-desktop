@@ -812,6 +812,22 @@ registerModelDiscovery( settingsNs: string, discover: (request: LlmModelDiscover
 async discoverModels( settingsNs: string, request: LlmModelDiscoveryRequest, ): Promise<LlmDiscoveredModel[]>
 
 /**
+ * Register an OAuth login handler for one provider route.
+ * @param provider - the provider route this login handler serves.
+ * @param login - interactive login handler.
+ * @returns the disposer that withdraws the handler.
+ */
+registerOAuthLogin( provider: string, login: (options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined }) => Promise<unknown>, ): () => void
+
+/**
+ * Start interactive OAuth login for one provider route.
+ * @param provider - provider route key.
+ * @param options - interaction hooks and optional abort signal.
+ * @returns the resolved OAuth credential.
+ */
+async startOAuthLogin( provider: string, options: { onAuthUrl?: ((url: string) => void) | undefined; signal?: AbortSignal | undefined } = {}, ): Promise<unknown>
+
+/**
  * Resolve the retry policy captured when one provider route was registered.
  * @param provider - registered provider route to inspect.
  * @returns the provider-owned policy, with normal defaults already resolved.

@@ -25,6 +25,7 @@ import { anthropicMessagesApi } from '@earendil-works/pi-ai/api/anthropic-messag
 import { openAICompletionsApi } from '@earendil-works/pi-ai/api/openai-completions.lazy'
 import { openAIResponsesApi } from '@earendil-works/pi-ai/api/openai-responses.lazy'
 import { catalogProvider } from './catalog.ts'
+import { getActiveProviderModels } from './openrouter.ts'
 
 /**
  * Wire protocols a configured route may name, mapped to pi-ai's lazily loaded
@@ -153,7 +154,7 @@ function reuseCatalogProvider(base: Provider, spec: ProviderSpec): Provider {
     name: spec.displayName,
     ...baseUrl === undefined ? {} : { baseUrl },
     auth: routeAuth(spec, base),
-    getModels: () => spec.models,
+    getModels: () => getActiveProviderModels(spec.provider, spec.models),
     // Delegated rather than copied: the catalog provider stays the receiver, so
     // an implementation holding state on itself keeps working.
     stream: (model, context, options) => base.stream(model, context, options),

@@ -50,8 +50,9 @@ import type {
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
-import type { ResolvedPiAiProviderProfile } from './config.ts'
+import { DEFAULT_CONTEXT_WINDOW, DEFAULT_MAX_TOKENS, type ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import { fetchOpenRouterModels, overlayOpenRouterModels, setActiveProviderModels } from './openrouter.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -248,42 +249,93 @@ export class PiAiAdapter extends LlmAdapter {
     return this.current().profiles.get(provider)?.retryPolicy
   }
 
-  override listModels(provider: string): Promise<readonly LlmModelInfo[]> {
-    return Promise.resolve().then(() => {
-      const snapshot = this.current()
-      this.profileOf(snapshot, provider)
-      return snapshot.models.getModels(provider).map(model => ({
-        provider,
-        id: model.id,
-        name: model.name,
-        inputModalities: [...model.input],
-      }))
-    })
+  override async listModels(provider: string): Promise<readonly LlmModelInfo[]> {
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    if (provider === 'openrouter' && (profile.models === undefined || profile.models.length === 0)) {
+      try {
+        const apiKey = await this.config.resolveApiKey(provider, profile).catch(() => undefined)
+        const liveModels = await fetchOpenRouterModels({
+          apiKey,
+          baseURL: profile.baseURL,
+          ttlMs: profile.openrouterCatalogTtlMs,
+          provider,
+        })
+        if (liveModels.length > 0) {
+          const routeCatalog = overlayOpenRouterModels(liveModels, {
+            provider,
+            ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
+            ...profile.presets === undefined ? {} : { presets: profile.presets },
+            ...profile.modelOverrides === undefined ? {} : { modelOverrides: profile.modelOverrides },
+            defaultInput: profile.defaultInput ?? ['text'],
+            defaultContextWindow: profile.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            defaultMaxTokens: profile.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+          })
+          setActiveProviderModels(provider, routeCatalog.models)
+        }
+      } catch {
+        // Offline / network failure: keep current / static models
+      }
+    }
+    return snapshot.models.getModels(provider).map(model => ({
+      provider,
+      id: model.id,
+      name: model.name,
+      inputModalities: [...model.input],
+    }))
   }
 
-  override resolveModel(
+  override async resolveModel(
     provider: string,
     model: string,
-    _signal?: AbortSignal,
+    signal?: AbortSignal,
   ): Promise<LlmResolvedModelInfo> {
-    return Promise.resolve().then(() => {
-      const snapshot = this.current()
-      const profile = this.profileOf(snapshot, provider)
-      const resolvedModel = this.modelOf(snapshot, provider, model)
-      const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
-      // Only a cap the deployment configured is a request default; the
-      // catalog's `maxTokens` sizes the model and stops there.
-      const configuredMaxTokens = profile.configuredMaxTokens.get(model)
-      return {
-        provider,
-        id: model,
-        name: resolvedModel.name,
-        inputModalities: [...resolvedModel.input],
-        context: { contextWindow: resolvedModel.contextWindow },
-        ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
-        ...reasoningInfo(resolvedModel, defaultLevel),
+    const snapshot = this.current()
+    const profile = this.profileOf(snapshot, provider)
+    let resolvedModel = snapshot.models.getModel(provider, model)
+    if (resolvedModel === undefined && provider === 'openrouter' && (profile.models === undefined || profile.models.length === 0)) {
+      try {
+        const apiKey = await this.config.resolveApiKey(provider, profile).catch(() => undefined)
+        const liveModels = await fetchOpenRouterModels({
+          apiKey,
+          baseURL: profile.baseURL,
+          ttlMs: profile.openrouterCatalogTtlMs,
+          signal,
+          provider,
+        })
+        if (liveModels.length > 0) {
+          const routeCatalog = overlayOpenRouterModels(liveModels, {
+            provider,
+            ...profile.baseURL === undefined ? {} : { baseURL: profile.baseURL },
+            ...profile.presets === undefined ? {} : { presets: profile.presets },
+            ...profile.modelOverrides === undefined ? {} : { modelOverrides: profile.modelOverrides },
+            defaultInput: profile.defaultInput ?? ['text'],
+            defaultContextWindow: profile.defaultContextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            defaultMaxTokens: profile.defaultMaxTokens ?? DEFAULT_MAX_TOKENS,
+          })
+          setActiveProviderModels(provider, routeCatalog.models)
+          resolvedModel = snapshot.models.getModel(provider, model)
+        }
+      } catch {
+        // ignore
       }
-    })
+    }
+    if (resolvedModel === undefined) {
+      throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
+    }
+    const defaultLevel = describableReasoningLevel(resolvedModel, profile.reasoning)
+    // Only a cap the deployment configured is a request default; the
+    // catalog's `maxTokens` sizes the model and stops there.
+    const configuredMaxTokens = profile.configuredMaxTokens.get(model)
+    return {
+      provider,
+      id: model,
+      name: resolvedModel.name,
+      inputModalities: [...resolvedModel.input],
+      context: { contextWindow: resolvedModel.contextWindow },
+      ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
+      ...reasoningInfo(resolvedModel, defaultLevel),
+    }
   }
 
   async * stream(options: GenerateOptions): AsyncIterable<StreamChunk> {
