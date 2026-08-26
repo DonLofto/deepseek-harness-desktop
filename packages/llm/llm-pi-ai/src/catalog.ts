@@ -918,10 +918,22 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
   // An override becomes the catalog entry's configuration, so everything a
   // models entry may declare — capacities, efforts, compat — resolves through
   // the same path with the same diagnostics and request-default semantics.
+  const presetMap = new Map(presets.map(p => [p.id, p]))
   const baseEntries: readonly PiAiModelProfile[] = configured.length > 0
     ? configured
-    : [...defaults.values()].map(model => ({ id: model.id, ...overrides[model.id] }))
-  const entries: readonly PiAiModelProfile[] = [...baseEntries, ...presets]
+    : [...defaults.values()].map((model) => {
+      const override = overrides[model.id]
+      const preset = presetMap.get(model.id)
+      return {
+        id: model.id,
+        ...preset,
+        ...override,
+      }
+    })
+  const nonDefaultPresets = configured.length > 0
+    ? presets.filter(p => !configured.some(c => c.id === p.id))
+    : presets.filter(p => !defaults.has(p.id))
+  const entries: readonly PiAiModelProfile[] = [...baseEntries, ...nonDefaultPresets]
   if (entries.length === 0) {
     invalid(provider, 'resolves no models; the installed catalog does not describe this route, so its models'
       + ' must be listed in configuration')

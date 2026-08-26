@@ -325,9 +325,13 @@ export async function fetchOpenRouterModels(
   try {
     const entries = await queryOpenRouterModelsEndpoint(options)
     const models: Model<Api>[] = []
+    const seen = new Set<string>()
     for (const raw of entries) {
       const model = mapOpenRouterModel(raw, provider, baseURL)
-      if (model !== undefined) models.push(model)
+      if (model !== undefined && !seen.has(model.id)) {
+        seen.add(model.id)
+        models.push(model)
+      }
     }
     if (models.length > 0) {
       catalogCache.set(cacheKey, { models, fetchedAt: now })
@@ -359,9 +363,11 @@ export async function fetchOpenRouterDiscovery(
   try {
     const entries = await queryOpenRouterModelsEndpoint(options)
     const models: LlmDiscoveredModel[] = []
+    const seen = new Set<string>()
     for (const entry of entries) {
       const id = parseLabel(entry.id)
-      if (id === undefined) continue
+      if (id === undefined || seen.has(id)) continue
+      seen.add(id)
       const name = parseLabel(entry.name) ?? id
       const contextWindow = parseCapacity(entry.context_length, entry.contextWindow)
       const maxTokens = parseCapacity(
@@ -408,14 +414,17 @@ export function overlayOpenRouterModels(
   const overrides = request.modelOverrides ?? {}
   const presets = request.presets ?? []
   const configured = request.models ?? []
+  const presetMap = new Map(presets.map(p => [p.id, p]))
+  const seen = new Set<string>()
+  const configuredMaxTokens = new Map<string, number>()
 
   // If explicit models list was configured, it replaces the base catalog
   if (configured.length > 0) {
-    const seen = new Set<string>()
-    const configuredMaxTokens = new Map<string, number>()
-    const models = [...configured, ...presets].map((entry) => {
+    const models: Model<Api>[] = []
+    const combined = [...configured, ...presets.filter(p => !configured.some(c => c.id === p.id))]
+    for (const entry of combined) {
       if (seen.has(entry.id)) {
-        throw new Error(`llm-pi-ai: provider "${provider}" lists model "${entry.id}" more than once`)
+        continue
       }
       seen.add(entry.id)
       const base = baseModels.find(m => m.id === entry.id)
@@ -423,7 +432,7 @@ export function overlayOpenRouterModels(
       const maxTokens = entry.maxTokens ?? base?.maxTokens ?? request.defaultMaxTokens
       if (entry.maxTokens !== undefined) configuredMaxTokens.set(entry.id, entry.maxTokens)
 
-      return {
+      models.push({
         ...base,
         id: entry.id,
         name: entry.name ?? base?.name ?? entry.id,
@@ -435,31 +444,48 @@ export function overlayOpenRouterModels(
         contextWindow,
         maxTokens,
         reasoning: entry.reasoning ?? base?.reasoning ?? false,
-      } as Model<Api>
-    })
+      } as Model<Api>)
+    }
     return { models, configuredMaxTokens }
   }
 
-  // Base live models + overrides
-  const configuredMaxTokens = new Map<string, number>()
-  const overridden = baseModels.map((base) => {
+  // Base live models + overrides + matching presets
+  const result: Model<Api>[] = []
+  for (const base of baseModels) {
+    if (seen.has(base.id)) continue
+    seen.add(base.id)
+
     const override = overrides[base.id]
-    if (override === undefined) return base
-    if (override.maxTokens !== undefined) configuredMaxTokens.set(base.id, override.maxTokens)
-    return {
+    const preset = presetMap.get(base.id)
+
+    const name = override?.name ?? preset?.name ?? base.name
+    const contextWindow = override?.contextWindow ?? preset?.contextWindow ?? base.contextWindow
+    const maxTokens = override?.maxTokens ?? preset?.maxTokens ?? base.maxTokens
+    const input = override?.input ?? preset?.input ?? base.input
+    const reasoning = override?.reasoning ?? preset?.reasoning ?? base.reasoning
+
+    if (override?.maxTokens !== undefined) configuredMaxTokens.set(base.id, override.maxTokens)
+    else if (preset?.maxTokens !== undefined) configuredMaxTokens.set(base.id, preset.maxTokens)
+
+    result.push({
       ...base,
-      name: override.name ?? base.name,
-      contextWindow: override.contextWindow ?? base.contextWindow,
-      maxTokens: override.maxTokens ?? base.maxTokens,
-      input: override.input ?? base.input,
-      reasoning: override.reasoning ?? base.reasoning,
-    } as Model<Api>
-  })
+      provider,
+      name,
+      contextWindow,
+      maxTokens,
+      input,
+      reasoning,
+      ...(reasoning === true ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
+    } as Model<Api>)
+  }
 
   // Append custom presets (e.g. @preset/...)
-  const presetModels: Model<Api>[] = presets.map((preset) => {
+  for (const preset of presets) {
+    if (seen.has(preset.id)) continue
+    seen.add(preset.id)
+
     if (preset.maxTokens !== undefined) configuredMaxTokens.set(preset.id, preset.maxTokens)
-    return {
+    result.push({
       id: preset.id,
       name: preset.name ?? preset.id,
       api: request.api ?? 'openai-completions',
@@ -471,11 +497,11 @@ export function overlayOpenRouterModels(
       maxTokens: preset.maxTokens ?? request.defaultMaxTokens,
       reasoning: preset.reasoning ?? false,
       ...(preset.reasoning === true ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
-    } as Model<Api>
-  })
+    } as Model<Api>)
+  }
 
   return {
-    models: [...overridden, ...presetModels],
+    models: result,
     configuredMaxTokens,
   }
 }

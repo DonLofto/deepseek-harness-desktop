@@ -318,4 +318,45 @@ describe('live catalog integration with PiAiAdapter', () => {
     expect(resolved.reasoning).toBeDefined()
     expect(resolved.reasoning?.efforts.length).toBeGreaterThan(0)
   })
+
+  it('merges preset that collides with live model without duplicate metadata errors', async () => {
+    const server = await mockServer([
+      { status: 200, headers: { 'content-type': 'application/json' }, body: JSON.stringify(MOCK_OPENROUTER_RESPONSE) },
+    ])
+
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(LlmPiAi, {
+      providers: {
+        openrouter: {
+          apiKeyEnv: KEY_ENV,
+          baseURL: `${server.url}/v1`,
+          presets: [
+            {
+              id: 'deepseek/deepseek-r1',
+              name: 'My Custom DeepSeek R1',
+              contextWindow: 200000,
+              maxTokens: 16384,
+              reasoning: true,
+            },
+            {
+              id: '@preset/custom',
+              name: 'Custom Preset',
+            },
+          ],
+        },
+      },
+    })
+
+    const models = await ctx.llm.listModels('openrouter')
+    // 4 live models + 1 unique custom preset = 5 (no duplicate for deepseek/deepseek-r1)
+    expect(models.length).toBe(5)
+    const seen = new Set(models.map(m => m.id))
+    expect(seen.size).toBe(5)
+
+    const resolved = await ctx.llm.resolveModelInfo('openrouter', 'deepseek/deepseek-r1')
+    expect(resolved.name).toBe('My Custom DeepSeek R1')
+    expect(resolved.context?.contextWindow).toBe(200000)
+    expect(resolved.defaultMaxTokens).toBe(16384)
+  })
 })
