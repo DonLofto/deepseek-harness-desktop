@@ -49,5 +49,5 @@ We implemented the Desktop Enhancements Suite across the LLM adapters, API proxy
 - Unit tests in `packages/llm/llm-pi-ai/tests/openrouter.spec.ts` verify pricing parsing and cost calculation.
 - Tests in `packages/host/apiproxy/tests/api-proxy-models.spec.ts` verify pricing wire serialization.
 - Tests in `packages/client/ui-model-selection/tests/model-select.client.spec.tsx` verify pricing badge rendering and model pinning interactions.
-- Tests in `packages/client/ui-conversation/tests/export-markdown.client.spec.ts` verify Markdown session generation.
+- Tests in `packages/client/ui-conversation/tests/export-markdown.client.spec.tsx` verify Markdown session generation.
 - Full typecheck and 1,112 vitest tests pass across all packages with zero errors.

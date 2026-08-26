@@ -38,6 +38,7 @@ import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
 import { registerConversationNodes } from './conversation-nodes/register.ts'
 import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
+import { ExportMarkdownAction } from './export/ExportMarkdownAction.tsx'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -268,6 +269,14 @@ export function apply(ctx: Context): void {
       open: (id) => { sessions.open(id) },
     }),
   }, ConversationSessionHeader)
+
+  // Session header utilities: one-click Markdown conversation export.
+  slots.register({
+    name: 'conversation.session.header.utilities',
+    id: 'export-markdown',
+    locale: NS,
+    order: 10,
+  }, ExportMarkdownAction)
 
   // The default composer body: its own single slot inside the composer
   // chain's fallback. Public machine surface arrives via the

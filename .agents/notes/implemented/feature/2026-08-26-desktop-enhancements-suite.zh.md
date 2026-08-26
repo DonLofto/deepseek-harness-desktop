@@ -49,5 +49,5 @@
 - `packages/llm/llm-pi-ai/tests/openrouter.spec.ts` 验证价格解析与成本换算。
 - `packages/host/apiproxy/tests/api-proxy-models.spec.ts` 验证协议序列化。
 - `packages/client/ui-model-selection/tests/model-select.client.spec.tsx` 验证价格标签与星标置顶交互。
-- `packages/client/ui-conversation/tests/export-markdown.client.spec.ts` 验证 Markdown 格式化输出。
+- `packages/client/ui-conversation/tests/export-markdown.client.spec.tsx` 验证 Markdown 格式化输出。
 - 全量 TypeScript 类型检查及各模块 1,112 项 Vitest 单元测试全部通过。

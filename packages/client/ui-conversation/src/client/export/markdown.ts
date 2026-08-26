@@ -11,7 +11,10 @@ type UserContentBlock = UserMessageNode['content'][number]
 function contentToText(content: readonly UserContentBlock[]): string {
   return content.map((item) => {
     if (item.type === 'text') return item.text
-    if (item.type === 'image') return '![Image](attachment)'
+    if (item.type === 'image') {
+      const name = (item.attachment as { originalName?: string } | undefined)?.originalName ?? 'Image'
+      return `![${name}](attachment)`
+    }
     return ''
   }).filter(Boolean).join('\n\n')
 }
