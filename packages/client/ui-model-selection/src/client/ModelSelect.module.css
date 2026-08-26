@@ -223,6 +223,14 @@
   min-width: 0;
 }
 
+.modelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
 .modelName {
   overflow: hidden;
   color: inherit;
@@ -231,6 +239,20 @@
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.contextBadge {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 10px;
+  line-height: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .description {

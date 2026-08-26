@@ -126,6 +126,10 @@ export interface ModelCatalogModel {
   description?: string
   /** Exact-route reasoning metadata when the adapter exposes it. */
   reasoning?: ModelReasoning
+  /** Context window capacity in tokens (input + output) when advertised. */
+  contextWindow?: number
+  /** Maximum completion output tokens when advertised. */
+  maxTokens?: number
 }
 
 /** One provider and the models it advertised successfully. */

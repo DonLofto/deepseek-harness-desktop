@@ -24,6 +24,7 @@ import type { ModelDirectoryState } from './directory.ts'
 import { ModelDirectoryResolver } from './service.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import { ModelSelect } from './ModelSelect.tsx'
+import { formatTokenCapacity } from './format.ts'
 import { en, zh, type ModelKey } from './locales.ts'
 
 export { ModelDirectory } from './directory.ts'
@@ -31,6 +32,7 @@ export type { ModelDirectoryState } from './directory.ts'
 export { ModelDirectoryResolver } from './service.ts'
 export type { ModelSelectInjected } from './slots.ts'
 export type { ModelKey } from './locales.ts'
+export { formatTokenCapacity } from './format.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -49,12 +51,17 @@ function optionsOf(directory: SessionModels, t: TranslateNS<'model'>): SelectOpt
   const rows: SelectOption[] = []
   for (const group of directory.groups) {
     for (const model of group.models) {
+      const contextLabel = formatTokenCapacity(model.contextWindow)
+      const parts = [
+        group.name,
+        model.id,
+        ...contextLabel.length > 0 ? [`${contextLabel} ctx`] : [],
+        ...model.description !== undefined ? [model.description] : [],
+      ]
       rows.push({
         id: rowId(group.id, model.id),
         label: model.name,
-        detail: model.description !== undefined
-          ? `${group.name} · ${model.id} · ${model.description}`
-          : `${group.name} · ${model.id}`,
+        detail: parts.join(' · '),
         ...(directory.current.provider === group.id && directory.current.model === model.id
           ? { active: true } : {}),
       })

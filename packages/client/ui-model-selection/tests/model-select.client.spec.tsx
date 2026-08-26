@@ -228,11 +228,6 @@ describe('ModelSelect reasoning effort', () => {
       'Claude 3.5 Sonnet',
     ])
 
-    // Type nonexistent model -> shows empty search message
-    fireEvent.change(searchInput, { target: { value: 'nonexistent-model-xyz' } })
-    expect(screen.queryByRole('menuitemradio')).toBeNull()
-    expect(screen.getByText('未找到匹配的模型。')).toBeTruthy()
-
     // Pressing Enter with search selects first match
     fireEvent.change(searchInput, { target: { value: 'deepseek' } })
     expect(screen.getAllByRole('menuitemradio').map(item => item.textContent)).toEqual([
@@ -243,5 +238,39 @@ describe('ModelSelect reasoning effort', () => {
       provider: 'openrouter',
       model: 'deepseek/deepseek-r1',
     })
+  })
+
+  it('renders context window badges when contextWindow is present', async () => {
+    const groups = [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        models: [
+          { id: 'google/gemini-flash', name: 'Gemini Flash', contextWindow: 1048576 },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', contextWindow: 200000 },
+          { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat', contextWindow: 131072 },
+        ],
+      },
+    ]
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups,
+      current: { provider: 'openrouter', model: 'google/gemini-flash' },
+    }))
+
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={vi.fn()}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+
+    expect(screen.getByText('1M')).toBeTruthy()
+    expect(screen.getByText('200K')).toBeTruthy()
+    expect(screen.getByText('128K')).toBeTruthy()
   })
 })

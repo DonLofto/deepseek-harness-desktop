@@ -22,6 +22,7 @@ import {
   IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
+import { formatTokenCapacity } from './format.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
@@ -381,7 +382,14 @@ export function ModelSelect(
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
                           >
                             <span className={css.optionCopy}>
-                              <span className={css.modelName}>{model.name}</span>
+                              <span className={css.modelHeader}>
+                                <span className={css.modelName}>{model.name}</span>
+                                {model.contextWindow !== undefined && (
+                                  <span className={css.contextBadge}>
+                                    {formatTokenCapacity(model.contextWindow)}
+                                  </span>
+                                )}
+                              </span>
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
                               )}

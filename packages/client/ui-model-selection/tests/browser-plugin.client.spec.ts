@@ -29,6 +29,7 @@ const GROUPS = [{
     {
       id: 'deepseek-v4-flash',
       name: 'DeepSeek-V4-Flash',
+      contextWindow: 131072,
       reasoning: {
         efforts: [
           { id: 'off', name: 'Off' },
@@ -156,7 +157,7 @@ describe('ui-model-selection dual entry', () => {
     b.mint('s1')
     const options = await b.contribution().ui.options(projection('s1'), new AbortController().signal)
     expect(options.map((o: SelectOption) => o.label)).toEqual(['DeepSeek-V4-Flash', 'DeepSeek-V4-Pro'])
-    expect(options[0]).toMatchObject({ active: true, detail: 'DeepSeek · deepseek-v4-flash' })
+    expect(options[0]).toMatchObject({ active: true, detail: 'DeepSeek · deepseek-v4-flash · 128K ctx' })
     expect(options[1]?.active).toBeUndefined()
   })
 

@@ -312,19 +312,23 @@ function fixtureModelGroups(): ModelProviderGroup[] {
           name: 'DeepSeek-V4-Flash',
           description: '快速响应',
           reasoning: DEEPSEEK_REASONING,
+          contextWindow: 131072,
+          maxTokens: 8192,
         },
         {
           id: 'deepseek-v4-pro',
           name: 'DeepSeek-V4-Pro',
           description: '复杂任务',
           reasoning: DEEPSEEK_REASONING,
+          contextWindow: 131072,
+          maxTokens: 8192,
         },
       ],
     },
     {
       id: 'openai',
       name: 'OpenAI',
-      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING }],
+      models: [{ id: 'gpt-5', name: 'GPT-5', reasoning: OPENAI_REASONING, contextWindow: 262144, maxTokens: 16384 }],
     },
   ]
 }

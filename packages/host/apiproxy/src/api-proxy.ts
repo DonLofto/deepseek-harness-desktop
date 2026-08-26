@@ -293,11 +293,15 @@ async function buildModelCatalog(ctx: Context): Promise<{
               ? {}
               : { defaultEffort: resolved.reasoning.defaultEffort },
           }
+        const contextWindow = resolved.context?.contextWindow
+        const maxTokens = resolved.defaultMaxTokens
         return {
           id: model.id,
           name: model.name,
           ...model.description === undefined ? {} : { description: model.description },
           ...reasoning === undefined ? {} : { reasoning },
+          ...contextWindow === undefined ? {} : { contextWindow },
+          ...maxTokens === undefined ? {} : { maxTokens },
         }
       }))
       const group: ModelProviderGroup = {
