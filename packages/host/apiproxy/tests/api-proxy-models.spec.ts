@@ -37,6 +37,7 @@ class CatalogAdapter extends LlmAdapter {
     private readonly exactError?: Error,
     private readonly context?: { contextWindow: number },
     private readonly defaultMaxTokens?: number,
+    private readonly cost?: { input?: number; output?: number },
   ) {
     super()
   }
@@ -60,6 +61,7 @@ class CatalogAdapter extends LlmAdapter {
       ...this.reasoning === undefined ? {} : { reasoning: this.reasoning },
       ...this.context === undefined ? {} : { context: this.context },
       ...this.defaultMaxTokens === undefined ? {} : { defaultMaxTokens: this.defaultMaxTokens },
+      ...this.cost === undefined ? {} : { cost: this.cost },
     })
   }
 
@@ -95,7 +97,7 @@ async function harness(logged?: {
   ctx.llm.registerAdapter(['deepseek-official'], new CatalogAdapter('DeepSeek', [
     { provider: 'deepseek-official', id: 'deepseek-chat', name: 'DeepSeek Chat' },
     { provider: 'deepseek-official', id: 'deepseek-reasoner', name: 'DeepSeek Reasoner', description: 'Reasoning model' },
-  ], REASONING, undefined, { contextWindow: 131072 }, 8192))
+  ], REASONING, undefined, { contextWindow: 131072 }, 8192, { input: 0.14, output: 0.28 }))
   ctx.llm.registerAdapter(['broken'], new CatalogAdapter('Broken Provider', new Error('catalog offline')))
   ctx.llm.registerAdapter(['metadata-broken'], new CatalogAdapter('Metadata Broken', [
     { provider: 'metadata-broken', id: 'listed', name: 'Listed' },
@@ -304,6 +306,7 @@ describe('Web session model selection', () => {
           reasoning: REASONING,
           contextWindow: 131072,
           maxTokens: 8192,
+          pricing: { prompt: 0.14, completion: 0.28 },
         },
         {
           id: 'deepseek-reasoner',
@@ -312,6 +315,7 @@ describe('Web session model selection', () => {
           reasoning: REASONING,
           contextWindow: 131072,
           maxTokens: 8192,
+          pricing: { prompt: 0.14, completion: 0.28 },
         },
       ],
     }])

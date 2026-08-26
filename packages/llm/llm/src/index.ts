@@ -714,6 +714,7 @@ export class LlmRuntime extends Service {
       ...inputModalities === undefined ? {} : { inputModalities },
       ...context === undefined ? {} : { context: { contextWindow: context.contextWindow } },
       ...defaultMaxTokens === undefined ? {} : { defaultMaxTokens },
+      ...resolved.cost === undefined ? {} : { cost: resolved.cost },
     }
     const reasoning = resolved.reasoning
     if (reasoning === undefined) return info

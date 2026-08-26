@@ -22,7 +22,8 @@ import {
   IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import { formatTokenCapacity } from './format.ts'
+import { formatModelPricing, formatTokenCapacity } from './format.ts'
+import { loadPinnedModelKeys, togglePinnedModelKey } from './pins.ts'
 import type { ModelSelectInjected } from './slots.ts'
 import css from './ModelSelect.module.css'
 
@@ -80,11 +81,13 @@ export function ModelSelect(
       } satisfies ModelSelection,
     }))), [state.groups])
 
+  const [pinnedKeys, setPinnedKeys] = useState<Set<string>>(() => loadPinnedModelKeys())
+
   const query = search.trim().toLowerCase()
   const filteredGroups = useMemo(() => {
-    if (!query) return state.groups
-    return state.groups
+    const baseGroups = state.groups
       .map((group) => {
+        if (!query) return group
         const matchesGroup = group.name.toLowerCase().includes(query)
         const models = group.models.filter(model =>
           matchesGroup
@@ -95,7 +98,36 @@ export function ModelSelect(
         return { ...group, models }
       })
       .filter(group => group.models.length > 0)
-  }, [state.groups, query])
+
+    if (pinnedKeys.size === 0) return baseGroups
+
+    const pinnedModels: Array<{ group: (typeof state.groups)[number]; model: (typeof state.groups)[number]['models'][number] }> = []
+    for (const group of state.groups) {
+      for (const model of group.models) {
+        if (pinnedKeys.has(`${group.id}/${model.id}`)) {
+          if (!query
+            || model.name.toLowerCase().includes(query)
+            || model.id.toLowerCase().includes(query)
+            || (model.description !== undefined && model.description.toLowerCase().includes(query))) {
+            pinnedModels.push({ group, model })
+          }
+        }
+      }
+    }
+
+    if (pinnedModels.length === 0) return baseGroups
+
+    const pinnedGroup = {
+      id: '__pinned__',
+      name: '⭐ Pinned',
+      models: pinnedModels.map(p => ({
+        ...p.model,
+        description: p.model.description ? `${p.group.name} · ${p.model.description}` : p.group.name,
+      })),
+    }
+
+    return [pinnedGroup, ...baseGroups]
+  }, [state.groups, query, pinnedKeys])
 
   const selectedIndex = state.current === null
     ? -1
@@ -246,12 +278,19 @@ export function ModelSelect(
   }
 
   const choose = (selection: ModelSelection): void => {
-    if (state.current?.provider === selection.provider && state.current.model === selection.model) {
+    let target = selection
+    if (selection.provider === '__pinned__') {
+      const match = choices.find(c => c.selection.model === selection.model)
+      if (match !== undefined) {
+        target = match.selection
+      }
+    }
+    if (state.current?.provider === target.provider && state.current.model === target.model) {
       close(true)
       return
     }
     lastActionRef.current = 'select'
-    void select(selection).then(settleSelection)
+    void select(target).then(settleSelection)
   }
 
   const chooseEffort = (effort: string | undefined): void => {
@@ -368,7 +407,12 @@ export function ModelSelect(
                     <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
                       <div className={css.groupTitle} id={headingId}>{group.name}</div>
                       {group.models.map((model) => {
-                        const selected = state.current?.provider === group.id && state.current.model === model.id
+                        const realProvider = group.id === '__pinned__'
+                          ? choices.find(c => c.selection.model === model.id)?.selection.provider ?? group.id
+                          : group.id
+                        const selected = state.current?.provider === realProvider && state.current.model === model.id
+                        const pinKey = `${realProvider}/${model.id}`
+                        const isPinned = pinnedKeys.has(pinKey)
                         return (
                           <button
                             ref={itemRef()}
@@ -376,7 +420,7 @@ export function ModelSelect(
                             role="menuitemradio"
                             aria-checked={selected}
                             className={clsx(css.option, selected && css.selected)}
-                            key={model.id}
+                            key={group.id === '__pinned__' ? `pinned:${model.id}` : model.id}
                             title={model.name}
                             disabled={busy}
                             onClick={() => { choose({ provider: group.id, model: model.id }) }}
@@ -384,15 +428,46 @@ export function ModelSelect(
                             <span className={css.optionCopy}>
                               <span className={css.modelHeader}>
                                 <span className={css.modelName}>{model.name}</span>
-                                {model.contextWindow !== undefined && (
-                                  <span className={css.contextBadge}>
-                                    {formatTokenCapacity(model.contextWindow)}
-                                  </span>
-                                )}
+                                <span className={css.badges}>
+                                  {model.contextWindow !== undefined && (
+                                    <span className={css.contextBadge}>
+                                      {formatTokenCapacity(model.contextWindow)}
+                                    </span>
+                                  )}
+                                  {model.pricing !== undefined && (
+                                    <span className={css.pricingBadge}>
+                                      {formatModelPricing(model.pricing)}
+                                    </span>
+                                  )}
+                                </span>
                               </span>
                               {model.description !== undefined && (
                                 <span className={css.description}>{model.description}</span>
                               )}
+                            </span>
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className={clsx(css.starButton, isPinned && css.starButtonPinned)}
+                              title={isPinned ? 'Unstar model' : 'Star model'}
+                              aria-label={isPinned ? 'Unstar model' : 'Star model'}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const next = togglePinnedModelKey(pinKey)
+                                setPinnedKeys(new Set(next))
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  const next = togglePinnedModelKey(pinKey)
+                                  setPinnedKeys(new Set(next))
+                                }
+                              }}
+                            >
+                              <svg viewBox="0 0 16 16" width="13" height="13" fill={isPinned ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.3">
+                                <polygon points="8,1.5 10,5.8 14.8,6.4 11.2,9.8 12.2,14.5 8,12 3.8,14.5 4.8,9.8 1.2,6.4 6,5.8" />
+                              </svg>
                             </span>
                             <span className={css.check}>
                               {selected ? <IconCheckOutline16 /> : null}

@@ -10,7 +10,7 @@
  * @module dsh-llm-pi-ai/openrouter
  */
 
-import type { Api, Model, ThinkingLevelMap } from '@earendil-works/pi-ai'
+import type { Api, Model, ModelCost, ThinkingLevelMap } from '@earendil-works/pi-ai'
 import { attributionHeaders, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-llm'
 import { catalogModels, NO_COST, type PiAiModality, type RouteCatalog, type RouteCatalogRequest } from './catalog.ts'
@@ -58,6 +58,27 @@ export interface OpenRouterApiEntry {
   input?: unknown
   supported_parameters?: unknown
   reasoning?: unknown
+  pricing?: {
+    prompt?: unknown
+    completion?: unknown
+    request?: unknown
+    image?: unknown
+  } | null
+}
+
+/**
+ * Parse OpenRouter per-token pricing into ModelCost (cost per million tokens).
+ * @param entry - raw OpenRouter model descriptor.
+ * @returns calculated model cost descriptor.
+ */
+export function parseOpenRouterCost(entry: OpenRouterApiEntry): ModelCost {
+  const pricing = entry.pricing
+  if (typeof pricing !== 'object' || pricing === null) return NO_COST
+  const promptVal = Number((pricing as Record<string, unknown>).prompt)
+  const completionVal = Number((pricing as Record<string, unknown>).completion)
+  const input = Number.isFinite(promptVal) && promptVal >= 0 ? promptVal * 1_000_000 : 0
+  const output = Number.isFinite(completionVal) && completionVal >= 0 ? completionVal * 1_000_000 : 0
+  return { input, output, cacheRead: 0, cacheWrite: 0 }
 }
 
 /** Cached catalog entry with timestamp. */
@@ -201,7 +222,7 @@ export function mapOpenRouterModel(
     provider,
     baseUrl,
     input,
-    cost: NO_COST,
+    cost: parseOpenRouterCost(entry),
     contextWindow,
     maxTokens,
     ...reasoning,
@@ -294,7 +315,7 @@ export async function queryOpenRouterModelsEndpoint(
     }
     const text = await readBounded(response, url)
     const json = JSON.parse(text) as { data?: unknown }
-    if (!Array.isArray(json?.data)) {
+    if (!Array.isArray(json.data)) {
       throw new LlmError('OpenRouter models listing has no "data" array', 'DISCOVERY_FAILED')
     }
     return json.data as OpenRouterApiEntry[]
@@ -475,7 +496,7 @@ export function overlayOpenRouterModels(
       maxTokens,
       input,
       reasoning,
-      ...(reasoning === true ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
+      ...(reasoning ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
     } as Model<Api>)
   }
 
@@ -496,7 +517,7 @@ export function overlayOpenRouterModels(
       contextWindow: preset.contextWindow ?? request.defaultContextWindow,
       maxTokens: preset.maxTokens ?? request.defaultMaxTokens,
       reasoning: preset.reasoning ?? false,
-      ...(preset.reasoning === true ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
+      ...(preset.reasoning ? { thinkingLevelMap: OPENROUTER_THINKING_LEVEL_MAP } : {}),
     } as Model<Api>)
   }
 

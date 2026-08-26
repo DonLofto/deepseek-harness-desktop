@@ -59,6 +59,10 @@ const MOCK_OPENROUTER_RESPONSE = {
       max_output_tokens: 4096,
       input: ['text', 'image'],
       supported_parameters: ['tools'],
+      pricing: {
+        prompt: '0.00000015',
+        completion: '0.0000006',
+      },
     },
     {
       id: 'meta-llama/llama-3-8b',
@@ -358,5 +362,8 @@ describe('live catalog integration with PiAiAdapter', () => {
     expect(resolved.name).toBe('My Custom DeepSeek R1')
     expect(resolved.context?.contextWindow).toBe(200000)
     expect(resolved.defaultMaxTokens).toBe(16384)
+
+    const gpt4o = await ctx.llm.resolveModelInfo('openrouter', 'openai/gpt-4o-mini')
+    expect(gpt4o.cost).toEqual({ input: 0.15, output: 0.6 })
   })
 })

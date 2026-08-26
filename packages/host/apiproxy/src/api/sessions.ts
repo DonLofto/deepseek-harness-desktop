@@ -130,6 +130,11 @@ export interface ModelCatalogModel {
   contextWindow?: number
   /** Maximum completion output tokens when advertised. */
   maxTokens?: number
+  /** Estimated cost per million tokens in USD when advertised. */
+  pricing?: {
+    prompt?: number
+    completion?: number
+  }
 }
 
 /** One provider and the models it advertised successfully. */

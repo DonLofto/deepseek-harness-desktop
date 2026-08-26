@@ -429,6 +429,8 @@ interface LlmConfigurableProvider {
    * from outside.
    */
   declared?: boolean
+  /** Whether the provider supports automated interactive OAuth login. */
+  oauth?: boolean
 }
 ```
 
@@ -499,6 +501,11 @@ interface LlmResolvedModelInfo extends LlmModelInfo {
   defaultMaxTokens?: number
   /** Adapter-owned selectable reasoning levels when exposed. */
   reasoning?: LlmModelReasoningInfo
+  /** Estimated cost per million tokens in USD when advertised. */
+  cost?: {
+    input?: number
+    output?: number
+  }
 }
 ```
 

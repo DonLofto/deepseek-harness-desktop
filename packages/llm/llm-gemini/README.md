@@ -1,5 +1,7 @@
 # @deepseek-ai/dsh-llm-gemini
 
+English | [中文](README.zh.md)
+
 Google Gemini subscription and Cloud Code PA LLM provider for the DeepSeek Harness LLM seam.
 
 This plugin enables authentication through Google OAuth 2.0 Device Code flow, queries Google Cloud Code PA (`https://daily-cloudcode-pa.googleapis.com`) for subscription tiers, companion projects, and quota summaries, and streams model inference turns via the Gemini API (`https://generativelanguage.googleapis.com`) with entitlement-aware HTTP 402/426 quota handling.
@@ -45,3 +47,11 @@ Text candidates, reasoning thought blocks, and function call invocations are tra
 #### Token effect
 
 Usage metadata is captured in `usage` chunks, and quota consumption is reconciled against subscription tier limits.
+
+#### KV Cache effect
+
+Response tokens populate downstream conversation context for subsequent turns.
+
+## Known Limitations and Deferred Work
+
+- Interactive Device Code OAuth login requires desktop browser interaction.

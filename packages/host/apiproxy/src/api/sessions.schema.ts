@@ -173,6 +173,10 @@ export const modelCatalogModelSchema = z.object({
   reasoning: modelReasoningSchema.optional(),
   contextWindow: z.number().int().positive().optional(),
   maxTokens: z.number().int().positive().optional(),
+  pricing: z.object({
+    prompt: z.number().nonnegative().optional(),
+    completion: z.number().nonnegative().optional(),
+  }).optional(),
 }) satisfies z.ZodType<Wire<ModelCatalogModel>>
 
 /** One successfully loaded provider group. */

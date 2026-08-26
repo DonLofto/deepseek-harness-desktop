@@ -31,3 +31,21 @@ export function formatTokenCapacity(tokens: number | undefined): string {
   if (tokens >= 1_000) return `${String(Math.round(tokens / 1_000))}K`
   return String(tokens)
 }
+
+/**
+ * Format model pricing (in USD per million tokens) into a concise display label (e.g. "Free", "$0.15/1M", "$3/1M").
+ * @param pricing - optional pricing object with prompt and completion token cost per million tokens.
+ * @returns formatted string or empty string if not available.
+ */
+export function formatModelPricing(pricing: { prompt?: number; completion?: number } | undefined): string {
+  if (pricing === undefined) return ''
+  const prompt = pricing.prompt ?? 0
+  const completion = pricing.completion ?? 0
+  if (prompt === 0 && completion === 0) return 'Free'
+  const maxRate = Math.max(prompt, completion)
+  if (maxRate < 0.01) return '<$0.01/1M'
+  const formatted = maxRate >= 1
+    ? (maxRate % 1 === 0 ? `$${String(maxRate)}/1M` : `$${maxRate.toFixed(2).replace(/\.?0+$/, '')}/1M`)
+    : `$${maxRate.toFixed(2)}/1M`
+  return formatted
+}

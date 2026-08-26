@@ -273,4 +273,87 @@ describe('ModelSelect reasoning effort', () => {
     expect(screen.getByText('200K')).toBeTruthy()
     expect(screen.getByText('128K')).toBeTruthy()
   })
+
+  it('renders pricing badges when pricing is present', async () => {
+    const groups = [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        models: [
+          { id: 'meta-llama/llama-3-8b', name: 'Llama 3 8B', pricing: { prompt: 0, completion: 0 } },
+          { id: 'openai/gpt-4o-mini', name: 'GPT-4o Mini', pricing: { prompt: 0.15, completion: 0.6 } },
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet', pricing: { prompt: 3, completion: 15 } },
+        ],
+      },
+    ]
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups,
+      current: { provider: 'openrouter', model: 'openai/gpt-4o-mini' },
+    }))
+
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={vi.fn()}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+
+    expect(screen.getByText('Free')).toBeTruthy()
+    expect(screen.getByText('$0.60/1M')).toBeTruthy()
+    expect(screen.getByText('$15/1M')).toBeTruthy()
+  })
+
+  it('pins a model on star click and renders under Pinned group', async () => {
+    localStorage.clear()
+    const groups = [
+      {
+        id: 'openrouter',
+        name: 'OpenRouter',
+        models: [
+          { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+          { id: 'openai/gpt-4o', name: 'GPT-4o' },
+        ],
+      },
+    ]
+    const directory = createSnapshotStore<ModelDirectoryState>(state({
+      groups,
+      current: { provider: 'openrouter', model: 'openai/gpt-4o' },
+    }))
+    const select = vi.fn().mockResolvedValue(true)
+
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+
+    // Initially no Pinned group
+    expect(screen.queryByText('⭐ Pinned')).toBeNull()
+
+    // Click star on Claude 3.5 Sonnet
+    const starButtons = screen.getAllByRole('button', { name: 'Star model' })
+    fireEvent.click(starButtons[0]!)
+
+    // Now Pinned group exists with Claude 3.5 Sonnet
+    expect(screen.getByText('⭐ Pinned')).toBeTruthy()
+
+    // Clicking pinned model selects it
+    const pinnedOption = screen.getAllByRole('menuitemradio', { name: /Claude 3.5 Sonnet/ })[0]!
+    fireEvent.click(pinnedOption)
+    expect(select).toHaveBeenCalledWith({
+      provider: 'openrouter',
+      model: 'anthropic/claude-3.5-sonnet',
+    })
+  })
 })

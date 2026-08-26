@@ -295,6 +295,12 @@ async function buildModelCatalog(ctx: Context): Promise<{
           }
         const contextWindow = resolved.context?.contextWindow
         const maxTokens = resolved.defaultMaxTokens
+        const pricing = resolved.cost === undefined
+          ? undefined
+          : {
+            ...resolved.cost.input === undefined ? {} : { prompt: resolved.cost.input },
+            ...resolved.cost.output === undefined ? {} : { completion: resolved.cost.output },
+          }
         return {
           id: model.id,
           name: model.name,
@@ -302,6 +308,7 @@ async function buildModelCatalog(ctx: Context): Promise<{
           ...reasoning === undefined ? {} : { reasoning },
           ...contextWindow === undefined ? {} : { contextWindow },
           ...maxTokens === undefined ? {} : { maxTokens },
+          ...pricing === undefined ? {} : { pricing },
         }
       }))
       const group: ModelProviderGroup = {
